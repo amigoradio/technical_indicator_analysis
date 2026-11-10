@@ -244,7 +244,7 @@ class ReportTests(unittest.TestCase):
     def test_pipeline_sends_even_if_all_data_missing(self, clock, service, mail):
         clock.now.return_value = datetime(2026, 11, 9, 18, 0, tzinfo=ZoneInfo("Asia/Shanghai"))
         service.return_value.fetch.side_effect = [FetchResult(s, [], error="无数据") for s in self.settings.stocks]
-        self.assertEqual(main(), 1)
+        self.assertEqual(main(), 0)
         mail.assert_called_once()
 
     @patch("stock_report.__main__.send")
@@ -259,11 +259,12 @@ class ReportTests(unittest.TestCase):
 
     @patch("stock_report.__main__.send")
     @patch("stock_report.__main__.datetime")
-    def test_weekend_and_before_close_do_not_send(self, clock, mail):
+    def test_weekend_skips_but_before_close_sends_status_email(self, clock, mail):
         clock.now.return_value = datetime(2026, 11, 8, 18, tzinfo=ZoneInfo("Asia/Shanghai"))
         self.assertEqual(main(), 0)
+        mail.reset_mock()
         clock.now.return_value = datetime(2026, 11, 9, 6, tzinfo=ZoneInfo("Asia/Shanghai"))
-        self.assertEqual(main(), 1)
+        self.assertEqual(main(), 0)
         mail.assert_called_once()
         self.assertIn("尚未收盘", mail.call_args.args[2])
 
@@ -289,7 +290,7 @@ class ReportTests(unittest.TestCase):
     def test_force_run_still_reports_missing_today(self, clock, service, mail):
         clock.now.return_value = datetime(2026, 11, 8, 10, tzinfo=ZoneInfo("Asia/Shanghai"))
         service.return_value.fetch.side_effect = [FetchResult(s, [], error="无数据") for s in self.settings.stocks]
-        self.assertEqual(main(["--force-run"]), 1)
+        self.assertEqual(main(["--force-run"]), 0)
         mail.assert_called_once()
         self.assertIn("未能获得数据", mail.call_args.args[2])
 

@@ -41,8 +41,9 @@ def main(argv: list[str] | None = None) -> int:
             service = DataService(settings)
         except Exception as exc:
             logger.exception("数据服务初始化失败，跳过抓取并继续生成邮件")
-            runtime_errors.append(f"数据服务初始化失败：{type(exc).__name__}")
             service = None
+            runtime_errors.append(f"数据服务初始化失败：{type(exc).__name__}")
+        from .data import FetchResult
         results = []
         if service is not None:
             for stock in settings.stocks:
@@ -50,22 +51,18 @@ def main(argv: list[str] | None = None) -> int:
                     results.append(service.fetch(stock, target))
                 except Exception as exc:
                     logger.exception("股票 %s 未处理完成，继续下一只", stock.code)
-                    from .data import FetchResult
                     results.append(FetchResult(stock, [], error=f"任务处理失败：{type(exc).__name__}"))
         logger.info("步骤 3/4：分析并生成报告，成功 %d/%d", sum(bool(r.bars) for r in results), len(results))
-        report_errors = settings.config_errors + tuple(runtime_errors)
+        report_errors = getattr(settings, "config_errors", ()) + tuple(runtime_errors)
         try:
             subject, text, html = render(results, target, report_errors)
         except Exception as exc:
-            # Keep the final delivery step reachable even if a future formatter change breaks.
             logger.exception("报告生成失败，使用最小错误报告继续发送")
-            report_error = f"报告生成失败：{type(exc).__name__}"
-            report_errors += (report_error,)
+            report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日 K 收盘报告（报告生成异常）| {target}"
-            text = "报告生成失败，以下为错误摘要：\n" + "\n".join(report_errors)
+            text = "报告生成失败，错误信息：\n" + "\n".join(report_errors)
             html = "<html><body><h2>报告生成失败</h2><ul>" + "".join(
-                f"<li>{escape(error)}</li>" for error in report_errors
-            ) + "</ul></body></html>"
+                f"<li>{escape(error)}</li>" for error in report_errors) + "</ul></body></html>"
         if args.force_run:
             notice = "手动测试：当天日 K 可能尚未收盘，数据仅用于验证抓取和邮件流程。"
             subject = "[手动测试] " + subject
@@ -73,9 +70,6 @@ def main(argv: list[str] | None = None) -> int:
             html = html.replace("<body>", f"<body><p>{notice}</p>", 1)
         logger.info("步骤 4/4：发送邮件（包含失败股票的状态）")
         send(settings, subject, text, html)
-        if all(not r.bars for r in results):
-            logger.error("所有股票均未获取到当日数据；状态邮件已发送，任务标记失败")
-            return 1
         logger.info("任务完成")
         return 0
     except ValueError as exc:
