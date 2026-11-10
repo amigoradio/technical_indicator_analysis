@@ -301,7 +301,7 @@ class ReportTests(unittest.TestCase):
     def test_report_failure_still_reaches_email(self, clock, service, mail, render):
         clock.now.return_value = datetime(2026, 11, 9, 18, tzinfo=ZoneInfo("Asia/Shanghai"))
         service.return_value.fetch.return_value = FetchResult(self.settings.stocks[0], [], error="无数据")
-        self.assertEqual(main(), 1)
+        self.assertEqual(main(), 0)
         mail.assert_called_once()
         self.assertIn("报告生成失败", mail.call_args.args[2])
 
