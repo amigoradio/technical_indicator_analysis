@@ -15,7 +15,7 @@
 3. 按需配置 `EMAIL_RECEIVERS`（逗号分隔，留空发给发件人）及 `EMAIL_SENDER_NAME`（默认“可爱炒股小秘”）。
 4. 进入 Actions → Daily closing report → Run workflow 手动验证；如需在周末或 18:00 前测试，勾选 `force_run`，报告会标记为“手动测试”。之后自动定时运行。
 
-未配置长桥时，A 股使用 Akshare → Baostock，港股使用 Akshare。配置 Longbridge 后优先使用长桥。失败股票在邮件中显示“未能获得数据”，其余股票正常展示。
+未配置长桥时，A 股使用 Akshare → Baostock，港股使用 Akshare。配置 Longbridge 后优先使用长桥。任务采用错误收集模式：失败股票、无效股票条目、数据源、分析和报告错误都会写入状态邮件并继续处理，尽量保证邮件送达；只有邮件配置本身错误时无法发送。
 
 完整配置、Longbridge OAuth、日志、休市处理和扩展方法见 [运行与开发说明](docs/daily-close.md)。
 

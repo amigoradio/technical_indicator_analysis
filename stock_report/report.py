@@ -1,3 +1,4 @@
+
 """Render the report in market sections and keep per-stock errors local."""
 from datetime import date
 from html import escape
@@ -6,7 +7,6 @@ from .data import FetchResult
 
 def number(value: float | None) -> str:
     return "—" if value is None else f"{value:,.2f}"
-
 def render(results: list[FetchResult], target: date,
            errors: tuple[str, ...] = ()) -> tuple[str, str, str]:
     subject = f"股票日 K 收盘报告 | {target}"

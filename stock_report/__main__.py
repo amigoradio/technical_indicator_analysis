@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv if argv is not None else [])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         stream=sys.stdout, force=True)
+    settings = None
     try:
         logger.info("步骤 1/4：读取并验证 Secret 配置")
         settings = Settings.from_env()
