@@ -16,7 +16,9 @@ class Stock:
         code = raw.strip().lower()
         if re.fullmatch(r"hk\d{1,5}", code):
             return cls("hk" + code[2:].zfill(5), "HK")
-        if re.fullmatch(r"\d{6}", code) and code.startswith(("0", "3", "6", "4", "8", "92")):
+        # Six-digit mainland symbols include stocks, ETFs and other listed funds;
+        # their prefixes are not limited to 0/3/6 (for example 511090, 159870).
+        if re.fullmatch(r"\d{6}", code):
             return cls(code, "CN")
         raise ValueError("股票代码应为六位 A 股代码或 hk 前缀的港股代码")
 
@@ -24,7 +26,7 @@ class Stock:
     def exchange(self) -> str:
         if self.market == "HK":
             return "HK"
-        if self.code.startswith("6"):
+        if self.code.startswith(("5", "6")):
             return "SH"
         if self.code.startswith(("4", "8", "92")):
             return "BJ"

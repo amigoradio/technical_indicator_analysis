@@ -52,16 +52,29 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(Settings.from_env().stocks), 2)
 
     def test_invalid_settings(self):
-        for key, value in (("STOCK_LIST", "700"), ("STOCK_LIST", "600519,hk700"),
-                           ("EMAIL_PASSWORD", ""), ("DATA_RETRY_ATTEMPTS", "0"),
+        for key, value in (("EMAIL_PASSWORD", ""),
                            ("EMAIL_RECEIVERS", "evil\r\nBcc:x@qq.com")):
             with self.subTest(key=key), patch.dict(os.environ, {key: value}):
                 with self.assertRaises(ValueError):
                     Settings.from_env()
 
+    def test_invalid_stock_is_reported_while_valid_stocks_continue(self):
+        os.environ["STOCK_LIST"] = "600519;bad;159870"
+        settings = Settings.from_env()
+        self.assertEqual([s.code for s in settings.stocks], ["600519", "159870"])
+        self.assertEqual(len(settings.config_errors), 1)
+
+    def test_invalid_optional_config_is_reported_with_default(self):
+        os.environ["DATA_RETRY_ATTEMPTS"] = "0"
+        settings = Settings.from_env()
+        self.assertEqual(settings.attempts, 2)
+        self.assertTrue(settings.config_errors)
+
     def test_market_symbols(self):
         for code, symbol in (("600519", "600519.SH"), ("000001", "000001.SZ"),
-                              ("920001", "920001.BJ"), ("HK700", "00700.HK")):
+                              ("920001", "920001.BJ"), ("511090", "511090.SH"),
+                              ("159870", "159870.SZ"), ("562950", "562950.SH"),
+                              ("HK700", "00700.HK")):
             self.assertEqual(Stock.parse(code).longbridge_symbol, symbol)
 
     def test_provider_routing(self):
@@ -251,7 +264,8 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(main(), 0)
         clock.now.return_value = datetime(2026, 11, 9, 6, tzinfo=ZoneInfo("Asia/Shanghai"))
         self.assertEqual(main(), 1)
-        mail.assert_not_called()
+        mail.assert_called_once()
+        self.assertIn("尚未收盘", mail.call_args.args[2])
 
     @patch("stock_report.__main__.send")
     @patch("stock_report.__main__.DataService")
@@ -278,6 +292,17 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(main(["--force-run"]), 1)
         mail.assert_called_once()
         self.assertIn("未能获得数据", mail.call_args.args[2])
+
+    @patch("stock_report.__main__.render", side_effect=RuntimeError("formatter failure"))
+    @patch("stock_report.__main__.send")
+    @patch("stock_report.__main__.DataService")
+    @patch("stock_report.__main__.datetime")
+    def test_report_failure_still_reaches_email(self, clock, service, mail, render):
+        clock.now.return_value = datetime(2026, 11, 9, 18, tzinfo=ZoneInfo("Asia/Shanghai"))
+        service.return_value.fetch.return_value = FetchResult(self.settings.stocks[0], [], error="无数据")
+        self.assertEqual(main(), 1)
+        mail.assert_called_once()
+        self.assertIn("报告生成失败", mail.call_args.args[2])
 
 
 if __name__ == "__main__":

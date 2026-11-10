@@ -92,8 +92,14 @@ class DataService:
 
     def fetch(self, stock: Stock, target: date) -> FetchResult:
         errors = []
-        start = target - timedelta(days=self.settings.history_days)
-        for provider in provider_chain(stock):
+        try:
+            providers = provider_chain(stock)
+            start = target - timedelta(days=self.settings.history_days)
+        except Exception as exc:
+            logger.exception("%s 数据源路由失败", stock.code)
+            return FetchResult(stock, [], error=f"数据源路由失败：{type(exc).__name__}")
+        for provider in providers:
+            provider_errors = []
             for attempt in range(1, self.settings.attempts + 1):
                 delay = random.uniform(2, 5)
                 logger.info("%s / %s 请求间隔 %.1f 秒", stock.code, provider.name, delay)
@@ -107,10 +113,11 @@ class DataService:
                     logger.info("%s / %s 成功，%d 根日 K，耗时 %.1f 秒", stock.code,
                                 provider.name, len(bars), time.monotonic() - began)
                     return FetchResult(stock, bars, provider.name)
-                except (RuntimeError, TimeoutError, ValueError, OSError) as exc:
+                except Exception as exc:
                     detail = f"{provider.name}: {exc}"
+                    provider_errors.append(detail)
                     logger.warning("%s / %s", stock.code, detail)
-            errors.append(detail)
+            errors.extend(provider_errors or [f"{provider.name}: 未知错误"])
             logger.info("%s / %s 已耗尽重试，尝试下一数据源", stock.code, provider.name)
         logger.error("%s 未能获得数据", stock.code)
         return FetchResult(stock, [], error="；".join(errors))
