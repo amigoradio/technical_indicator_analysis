@@ -61,6 +61,7 @@ OAuth 缓存来自已完成授权的长桥 SDK，原始文件位置为 `~/.longb
 - A 股：Longbridge（配置后）→ Akshare → Baostock。
 - 港股：Longbridge（配置后）→ Akshare；失败显示“未能获得数据”，不调用 Baostock。
 - A 股 ETF（`51xxxx`、`52xxxx`、`56xxxx`、`58xxxx`、`15xxxx`、`16xxxx`、`18xxxx`）在 Akshare 使用 `fund_etf_hist_em` 专用接口；普通 A 股使用 `stock_zh_a_hist`。Baostock 仅作为普通沪深 A 股的兜底，不用于 ETF 或港股。
+- GitHub Runner 的公共出口 IP 可能触发 Akshare Eastmoney `Push2RateLimitError`。ETF 遇到该错误时会尝试 Akshare 的新浪 ETF 历史接口（上海使用 `sh` 前缀、深圳使用 `sz` 前缀）；两者均失败才记录 ETF 数据源错误。ETF 不会再调用 Baostock。
 - 统一模型会将这些代码标记为 `asset_type=ETF`，并设置 `supports_fundamentals=false`、`adjustment=none`。后续增加财务、估值或分红复权功能时，必须先检查该标记：ETF 跳过 PE、EPS、净利润、分红和股票复权逻辑，只使用 ETF 的行情与技术指标。
 - 所有数据源使用不复权日线，以展示实际成交收盘价。MA5/10/20 和相邻交易记录涨跌幅也使用不复权价格，除权除息时可能跳变，与行情软件的复权指标可能不同。
 - 标准模型统一 `date/open/high/low/close/volume/amount`。成交量单位为股：Akshare A 股历史接口的手转换为股，港股历史接口直接使用股；Longbridge、Baostock 使用股。成交额为当地货币（A 股人民币、港股港元）。

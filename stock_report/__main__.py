@@ -9,13 +9,14 @@ from .config import Settings
 from .data import DataService
 from .email import send
 from .report import render
+from .trading_calendar import completed_session
 
 logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="股票日 K 收盘邮件任务")
-    parser.add_argument("--force-run", action="store_true", help="手动测试，跳过周末和18点前检查")
+    parser.add_argument("--force-run", action="store_true", help="手动测试标记，仍只获取已收盘交易日数据")
     args = parser.parse_args(argv if argv is not None else [])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s",
                         stream=sys.stdout, force=True)
@@ -25,18 +26,18 @@ def main(argv: list[str] | None = None) -> int:
         settings = Settings.from_env()
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
         logger.info("运行模式：%s；北京时间：%s", "手动强制测试" if args.force_run else "正常收盘任务", now.isoformat())
-        if args.force_run:
-            logger.warning("已跳过周末和18点前检查；当天数据可能未收盘或不存在，邮件将标记为手动测试")
-        if not args.force_run and now.weekday() >= 5:
-            logger.info("北京时间 %s 为周末，跳过任务", now.isoformat())
-            return 0
         runtime_errors = []
-        if not args.force_run and now.hour < 18:
-            warning = "当前时间早于北京时间 18:00，行情可能尚未收盘"
-            runtime_errors.append(warning)
-            logger.warning("%s；仍继续执行并发送状态邮件", warning)
+        targets = {}
+        for market in dict.fromkeys(stock.market for stock in settings.stocks):
+            try:
+                targets[market] = completed_session(now, market)
+                logger.info("%s 最近已收盘交易日：%s", market, targets[market])
+            except Exception as exc:
+                runtime_errors.append(f"{market} 交易日历不可用：{type(exc).__name__}，跳过该市场抓取")
+                logger.error("%s", runtime_errors[-1])
         target = now.date()
-        logger.info("步骤 2/4：抓取 %s 日 K，共 %d 只股票", target, len(settings.stocks))
+        logger.info("步骤 2/4：按各市场最近已收盘交易日抓取日 K，共 %d 只股票", len(settings.stocks))
+        target = min(targets.values()) if targets else now.date()
         try:
             service = DataService(settings)
         except Exception as exc:
@@ -47,8 +48,11 @@ def main(argv: list[str] | None = None) -> int:
         results = []
         if service is not None:
             for stock in settings.stocks:
+                if stock.market not in targets:
+                    results.append(FetchResult(stock, [], error="交易日历不可用，未抓取"))
+                    continue
                 try:
-                    results.append(service.fetch(stock, target))
+                    results.append(service.fetch(stock, targets[stock.market]))
                 except Exception as exc:
                     logger.exception("股票 %s 未处理完成，继续下一只", stock.code)
                     results.append(FetchResult(stock, [], error=f"任务处理失败：{type(exc).__name__}"))
@@ -64,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             html = "<html><body><h2>报告生成失败</h2><ul>" + "".join(
                 f"<li>{escape(error)}</li>" for error in report_errors) + "</ul></body></html>"
         if args.force_run:
-            notice = "手动测试：当天日 K 可能尚未收盘，数据仅用于验证抓取和邮件流程。"
+            notice = "手动测试：按各市场最近已收盘交易日取数，报告日期以个股 K 线日期为准。"
             subject = "[手动测试] " + subject
             text = notice + "\n\n" + text
             html = html.replace("<body>", f"<body><p>{notice}</p>", 1)

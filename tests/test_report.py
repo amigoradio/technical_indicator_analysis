@@ -90,6 +90,7 @@ class ReportTests(unittest.TestCase):
 
     def test_provider_routing(self):
         self.assertEqual([p.name for p in provider_chain(Stock.parse("600519"))], ["Akshare", "Baostock"])
+        self.assertEqual([p.name for p in provider_chain(Stock.parse("511090"))], ["Akshare", "Baostock"])
         os.environ["LONGBRIDGE_APP_KEY"] = "configured"
         self.assertEqual([p.name for p in provider_chain(Stock.parse("hk700"))], ["Longbridge", "Akshare"])
         self.assertEqual(provider_chain(Stock.parse("600519"))[0].name, "Longbridge")
@@ -169,6 +170,18 @@ class ReportTests(unittest.TestCase):
         sdk.fund_etf_hist_em.assert_called_once()
         sdk.stock_zh_a_hist.assert_not_called()
         self.assertEqual(bars[0].volume, 10000)
+
+    def test_akshare_etf_uses_sina_when_eastmoney_is_rate_limited(self):
+        sdk = MagicMock()
+        sdk.fund_etf_hist_em.side_effect = RuntimeError("Push2RateLimitError")
+        frame = MagicMock(empty=False)
+        frame.to_dict.return_value = [{"date": str(TARGET), "open": 10, "high": 12,
+                                       "low": 9, "close": 11, "volume": 100, "amount": 1100}]
+        sdk.fund_etf_hist_sina.return_value = frame
+        with patch.dict("sys.modules", {"akshare": sdk}):
+            bars = akshare.fetch(Stock.parse("511090"), TARGET, TARGET)
+        sdk.fund_etf_hist_sina.assert_called_once_with(symbol="sh511090")
+        self.assertEqual(bars[0].close, 11)
 
     def test_baostock_filters_suspension_and_logs_out(self):
         sdk = MagicMock()
@@ -291,15 +304,17 @@ class ReportTests(unittest.TestCase):
         mail.assert_called_once()
 
     @patch("stock_report.__main__.send")
+    @patch("stock_report.__main__.DataService")
     @patch("stock_report.__main__.datetime")
-    def test_weekend_skips_but_before_close_sends_status_email(self, clock, mail):
+    def test_weekend_and_before_close_use_previous_session(self, clock, service, mail):
+        service.return_value.fetch.return_value = FetchResult(self.settings.stocks[0], [], error="无数据")
         clock.now.return_value = datetime(2026, 11, 8, 18, tzinfo=ZoneInfo("Asia/Shanghai"))
         self.assertEqual(main(), 0)
         mail.reset_mock()
         clock.now.return_value = datetime(2026, 11, 9, 6, tzinfo=ZoneInfo("Asia/Shanghai"))
         self.assertEqual(main(), 0)
         mail.assert_called_once()
-        self.assertIn("尚未收盘", mail.call_args.args[2])
+        self.assertEqual(service.return_value.fetch.call_args.args[1], date(2026, 11, 6))
 
     @patch("stock_report.__main__.send")
     @patch("stock_report.__main__.DataService")
@@ -314,7 +329,7 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(main(["--force-run"]), 0)
                 args = mail.call_args.args
                 self.assertTrue(args[1].startswith("[手动测试]"))
-                self.assertIn("尚未收盘", args[2])
+                self.assertIn("手动测试", args[2])
                 self.assertIn("手动测试", args[3])
 
     @patch("stock_report.__main__.send")

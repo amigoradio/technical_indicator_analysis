@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       force_run:
-        description: '强制运行测试（跳过周末及18点前检查；报告标记为手动测试）'
+        description: '手动测试标记（始终按各市场最近已收盘交易日取数）'
         required: false
         default: false
         type: boolean

@@ -1,4 +1,5 @@
 from datetime import date
+import logging
 
 from ..models import DailyBar, Stock
 
@@ -6,14 +7,16 @@ from ..models import DailyBar, Stock
 def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     import baostock as bs
 
-    if stock.market != "CN" or stock.exchange == "BJ" or stock.is_etf:
-        raise ValueError("Baostock 不支持该市场或 ETF（仅支持沪深普通 A 股）")
+    if stock.market != "CN" or stock.exchange == "BJ":
+        raise ValueError("Baostock 不支持港股或北交所")
+    symbol = f"{stock.exchange.lower()}.{stock.code}"
+    logging.getLogger(__name__).info("Baostock query_history_k_data_plus code=%s adjustflag=3", symbol)
     login = bs.login()
     if login.error_code != "0":
         raise RuntimeError("Baostock 登录失败")
     try:
         result = bs.query_history_k_data_plus(
-            f"{stock.exchange.lower()}.{stock.code}",
+            symbol,
             "date,open,high,low,close,volume,amount,tradestatus",
             start_date=start.isoformat(), end_date=end.isoformat(), frequency="d", adjustflag="3")
         bars = []
