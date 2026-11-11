@@ -164,12 +164,14 @@ class ReportTests(unittest.TestCase):
         frame = MagicMock(empty=False)
         frame.to_dict.return_value = [{"日期": str(TARGET), "开盘": 10, "最高": 12,
                                        "最低": 9, "收盘": 11, "成交量": 100, "成交额": 1100}]
+        frame.to_dict.return_value[0]["名称"] = "国债ETF"
         sdk.fund_etf_hist_em.return_value = frame
         with patch.dict("sys.modules", {"akshare": sdk}):
             bars = akshare.fetch(Stock.parse("511090"), TARGET, TARGET)
         sdk.fund_etf_hist_em.assert_called_once()
         sdk.stock_zh_a_hist.assert_not_called()
         self.assertEqual(bars[0].volume, 10000)
+        self.assertEqual(bars[0].instrument_name, "国债ETF")
 
     def test_akshare_etf_uses_sina_when_eastmoney_is_rate_limited(self):
         sdk = MagicMock()

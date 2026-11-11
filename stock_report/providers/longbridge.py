@@ -78,6 +78,15 @@ def build_config():
     return Config.from_apikey(key, secret, token, **extra)
 
 
+def get_name(stock: Stock) -> str:
+    from longbridge.openapi import QuoteContext
+
+    infos = QuoteContext(build_config()).static_info([stock.longbridge_symbol])
+    if infos:
+        return infos[0].name_cn or infos[0].name_en or ""
+    return ""
+
+
 def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     from longbridge.openapi import AdjustType, Period, QuoteContext
     from zoneinfo import ZoneInfo

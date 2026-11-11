@@ -67,6 +67,7 @@ class DailyBar:
     close: float
     volume: float
     amount: float | None = None
+    instrument_name: str | None = None
 
 
 def validate_bars(bars: list[DailyBar], target: date) -> list[DailyBar]:

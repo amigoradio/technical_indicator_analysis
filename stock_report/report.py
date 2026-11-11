@@ -26,8 +26,10 @@ def render(results: list[FetchResult], target: date,
             html.append("<p>无配置标的</p>")
             continue
         for result in groups[market]:
-            text.append(f"\n[{result.stock.code}]")
-            html.append(f"<section><h4>{escape(result.stock.code)}</h4>")
+            name = next((bar.instrument_name for bar in result.bars if bar.instrument_name), "")
+            display = f"{result.stock.code}（{name or '名称暂缺'}）"
+            text.append(f"\n[{display}]")
+            html.append(f"<section><h4>{escape(display)}</h4>")
             text.append(f"类型：{result.stock.asset_type}")
             html.append(f"<p><strong>类型：</strong>{escape(result.stock.asset_type)}</p>")
             text.append(f"数据来源：{result.source or '无'}")

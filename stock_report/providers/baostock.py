@@ -4,6 +4,21 @@ import logging
 from ..models import DailyBar, Stock
 
 
+def get_name(stock: Stock) -> str:
+    import baostock as bs
+
+    if bs.login().error_code != "0":
+        return ""
+    try:
+        result = bs.query_stock_basic(code=f"{stock.exchange.lower()}.{stock.code}")
+        if result.error_code == "0" and result.next():
+            row = dict(zip(result.fields, result.get_row_data()))
+            return row.get("code_name", "")
+        return ""
+    finally:
+        bs.logout()
+
+
 def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     import baostock as bs
 

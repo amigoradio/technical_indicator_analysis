@@ -1,6 +1,6 @@
 """Provider routing, bounded requests, retries and validation."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from importlib import import_module
 import logging
@@ -38,8 +38,18 @@ def provider_chain(stock: Stock) -> list[Provider]:
 def _worker(connection, provider: Provider, stock: Stock, start: date, end: date) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
     try:
-        bars = import_module(provider.module).fetch(stock, start, end)
+        module = import_module(provider.module)
+        bars = module.fetch(stock, start, end)
         connection.send((True, bars))
+        # Bars are delivered before optional metadata: a slow name endpoint
+        # must never invalidate a successful price request.
+        try:
+            resolver = getattr(module, "get_name", None)
+            name = resolver(stock) if resolver else ""
+        except Exception as exc:
+            logger.warning("%s 名称查询失败（%s），保留行情", stock.code, type(exc).__name__)
+            name = ""
+        connection.send((True, name))
     except Exception as exc:
         # SDK exceptions may contain credential-bearing URLs; never expose their raw text.
         connection.send((False, type(exc).__name__))
@@ -66,6 +76,13 @@ def request(provider: Provider, stock: Stock, start: date, end: date,
             if payload == "Push2RateLimitError":
                 raise RuntimeError("东方财富 Push2 限流（Push2RateLimitError），将退避重试或切换数据源")
             raise RuntimeError(f"数据源调用失败：{payload}（请检查网络、权限及 Secret 配置）")
+        if payload and not any(bar.instrument_name for bar in payload) and reader.poll(5):
+            try:
+                name_ok, name = reader.recv()
+                if name_ok and isinstance(name, str) and name.strip():
+                    payload = [replace(bar, instrument_name=name.strip()) for bar in payload]
+            except (EOFError, OSError):
+                pass
         return payload
     finally:
         reader.close()

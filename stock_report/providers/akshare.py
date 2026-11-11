@@ -6,6 +6,24 @@ from ..models import DailyBar, Stock, validate_bars
 logger = logging.getLogger(__name__)
 
 
+def get_name(stock: Stock) -> str:
+    """Optional metadata lookup, bounded separately from historical prices."""
+    import akshare as ak
+
+    if stock.market == "HK":
+        frame = ak.stock_hk_spot_em()
+    elif stock.is_etf:
+        frame = ak.fund_etf_spot_em()
+    else:
+        frame = ak.stock_info_a_code_name()
+    code = stock.code[2:] if stock.market == "HK" else stock.code
+    for row in frame.to_dict("records"):
+        row_code = str(row.get("代码", row.get("code", ""))).strip()
+        if row_code.zfill(len(code)) == code:
+            return str(row.get("名称", row.get("name", ""))).strip()
+    return ""
+
+
 def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     import akshare as ak
 
@@ -54,10 +72,12 @@ def _to_bars(frame, stock: Stock) -> list[DailyBar]:
     for row in rows:
         date_value = row.get("日期", row.get("date"))
         amount = row.get("成交额", row.get("amount"))
+        name = row.get("名称", row.get("name"))
         bars.append(DailyBar(date.fromisoformat(str(date_value)[:10]),
                              *(float(row.get(key, row.get(key_en)))
                                for key, key_en in (("开盘", "open"), ("最高", "high"),
                                                    ("最低", "low"), ("收盘", "close"))),
                              float(row.get("成交量", row.get("volume", 0))) * volume_scale,
-                             float(amount) if amount not in (None, "") else None))
+                             float(amount) if amount not in (None, "") else None,
+                             str(name).strip() if name not in (None, "") else None))
     return bars
