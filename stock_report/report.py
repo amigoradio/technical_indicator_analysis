@@ -28,6 +28,8 @@ def render(results: list[FetchResult], target: date,
         for result in groups[market]:
             text.append(f"\n[{result.stock.code}]")
             html.append(f"<section><h4>{escape(result.stock.code)}</h4>")
+            text.append(f"类型：{result.stock.asset_type}")
+            html.append(f"<p><strong>类型：</strong>{escape(result.stock.asset_type)}</p>")
             text.append(f"数据来源：{result.source or '无'}")
             html.append(f"<p><strong>数据来源：</strong>{escape(result.source or '无')}</p>")
             if not result.bars:

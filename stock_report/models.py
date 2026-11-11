@@ -33,6 +33,26 @@ class Stock:
         return "SZ"
 
     @property
+    def is_etf(self) -> bool:
+        """Mainland ETF code ranges used by the Shanghai/Shenzhen exchanges."""
+        return self.market == "CN" and self.code.startswith(("51", "52", "56", "58", "15", "16", "18"))
+
+    @property
+    def asset_type(self) -> str:
+        """Stable instrument marker used by future fundamental/valuation layers."""
+        return "ETF" if self.is_etf else "STOCK"
+
+    @property
+    def supports_fundamentals(self) -> bool:
+        """ETFs have no stock EPS/PE/net-profit fundamentals in this pipeline."""
+        return not self.is_etf
+
+    @property
+    def adjustment(self) -> str:
+        """Daily bars are always unadjusted; ETFs must never use dividend adjustment."""
+        return "none"
+
+    @property
     def longbridge_symbol(self) -> str:
         code = self.code[2:] if self.market == "HK" else self.code
         return f"{code}.{self.exchange}"

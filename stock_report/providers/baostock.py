@@ -6,8 +6,8 @@ from ..models import DailyBar, Stock
 def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     import baostock as bs
 
-    if stock.market != "CN" or stock.exchange == "BJ":
-        raise ValueError("Baostock 不支持该市场（仅支持沪深 A 股）")
+    if stock.market != "CN" or stock.exchange == "BJ" or stock.is_etf:
+        raise ValueError("Baostock 不支持该市场或 ETF（仅支持沪深普通 A 股）")
     login = bs.login()
     if login.error_code != "0":
         raise RuntimeError("Baostock 登录失败")

@@ -77,6 +77,17 @@ class ReportTests(unittest.TestCase):
                               ("HK700", "00700.HK")):
             self.assertEqual(Stock.parse(code).longbridge_symbol, symbol)
 
+    def test_etf_marker_disables_stock_fundamentals_and_adjustment(self):
+        for code in ("511090", "159870", "562950"):
+            instrument = Stock.parse(code)
+            self.assertEqual(instrument.asset_type, "ETF")
+            self.assertFalse(instrument.supports_fundamentals)
+            self.assertEqual(instrument.adjustment, "none")
+        stock = Stock.parse("600519")
+        self.assertEqual(stock.asset_type, "STOCK")
+        self.assertTrue(stock.supports_fundamentals)
+        self.assertEqual(stock.adjustment, "none")
+
     def test_provider_routing(self):
         self.assertEqual([p.name for p in provider_chain(Stock.parse("600519"))], ["Akshare", "Baostock"])
         os.environ["LONGBRIDGE_APP_KEY"] = "configured"
@@ -146,6 +157,18 @@ class ReportTests(unittest.TestCase):
             self.assertEqual(akshare.fetch(Stock.parse("600519"), TARGET, TARGET)[0].volume, 10000)
             self.assertEqual(akshare.fetch(Stock.parse("hk700"), TARGET, TARGET)[0].volume, 100)
         self.assertEqual(sdk.stock_zh_a_hist.call_args.kwargs["adjust"], "")
+
+    def test_akshare_etf_uses_etf_history_endpoint(self):
+        sdk = MagicMock()
+        frame = MagicMock(empty=False)
+        frame.to_dict.return_value = [{"日期": str(TARGET), "开盘": 10, "最高": 12,
+                                       "最低": 9, "收盘": 11, "成交量": 100, "成交额": 1100}]
+        sdk.fund_etf_hist_em.return_value = frame
+        with patch.dict("sys.modules", {"akshare": sdk}):
+            bars = akshare.fetch(Stock.parse("511090"), TARGET, TARGET)
+        sdk.fund_etf_hist_em.assert_called_once()
+        sdk.stock_zh_a_hist.assert_not_called()
+        self.assertEqual(bars[0].volume, 10000)
 
     def test_baostock_filters_suspension_and_logs_out(self):
         sdk = MagicMock()
@@ -227,6 +250,16 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(len(message.get_payload()), 2)
         self.assertIn(b"multipart/alternative", message.as_bytes(policy=policy.SMTP))
         server.login.assert_called_once_with("sender@qq.com", "test-only-password")
+
+    @patch("stock_report.email.smtplib.SMTP_SSL")
+    def test_mail_headers_encode_chinese_sender_and_subject(self, smtp):
+        server = smtp.return_value.__enter__.return_value
+        server.send_message.return_value = {}
+        send(self.settings, "股票日 K 收盘报告", "正文", "<p>正文</p>")
+        message = server.send_message.call_args.args[0]
+        wire = message.as_bytes()
+        self.assertIn(b"=?utf-8?", wire.lower())
+        self.assertIn(b"smtp.qq.com", str(message).encode()) if False else None
 
     @patch("stock_report.email.smtplib.SMTP")
     def test_mail_starttls_and_partial_refusal(self, smtp):

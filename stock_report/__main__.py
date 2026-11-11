@@ -72,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
         send(settings, subject, text, html)
         logger.info("任务完成")
         return 0
+    except UnicodeEncodeError as exc:
+        logger.error("邮件编码失败：请检查邮箱地址、授权码或发件人显示名称（%s）", type(exc).__name__)
+        return 1
     except ValueError as exc:
         logger.error("配置或数据验证失败：%s", exc)
         return 1
