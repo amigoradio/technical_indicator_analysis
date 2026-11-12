@@ -1,0 +1,7 @@
+
+1）https://open.longbridge.com/ 申请账号
+2）运行register_longbridge_client.py 获得client_id
+3）运行token.py sdk接入（自动拉起浏览器授权、自动存 token、自动续期）
+4）浏览器访问这个打印的url，登录账号授权
+5）运行encode_token.py，将本地的token文件编码为base64
+6）打印的base64保存到github的actions的LONGBRIDGE_OAUTH_TOKEN_CACHE_B64中
