@@ -135,7 +135,9 @@ class DataService:
         errors = []
         try:
             providers = provider_chain(stock)
-            start = target - timedelta(days=self.settings.history_days)
+            # Providers return actual sessions; retain the latest 120 prior
+            # sessions plus the target instead of using an exchange calendar.
+            start = target - timedelta(days=200)
         except Exception as exc:
             logger.exception("%s 数据源路由失败", stock.code)
             return FetchResult(stock, [], error=f"数据源路由失败：{type(exc).__name__}")
@@ -155,8 +157,8 @@ class DataService:
                             provider.name, start, target, attempt, self.settings.attempts)
                 began = time.monotonic()
                 try:
-                    bars = validate_bars(request(provider, stock, start, target,
-                                                 self.settings.request_timeout), target)
+                    raw_bars = request(provider, stock, start, target, self.settings.request_timeout)
+                    bars = validate_bars(raw_bars, target, allow_previous=True)[-121:]
                     logger.info("%s / %s 成功，%d 根日 K，耗时 %.1f 秒", stock.code,
                                 provider.name, len(bars), time.monotonic() - began)
                     return FetchResult(stock, bars, provider.name)

@@ -28,7 +28,6 @@
 | `EMAIL_SMTP_SECURITY` | 465 用 `ssl`，其余用 `starttls` | 仅允许加密 SMTP；可显式覆盖 |
 | `DATA_REQUEST_TIMEOUT` | `60` | 单次请求硬超时秒数，范围 5–300 |
 | `DATA_RETRY_ATTEMPTS` | `2` | 每股票每数据源的总尝试次数，范围 1–3 |
-| `HISTORY_DAYS` | `120` | 查询当天及此前日历天数，范围 30–365，用于计算均线与涨跌幅 |
 
 自动识别：QQ / Foxmail、163、阿里云、默认 SSL 465；Gmail、Outlook、Hotmail、Live 默认 STARTTLS 587。以邮箱服务商实际 SMTP 配置为准；可通过 SMTP Secrets 覆盖。多个收件人共享同一份邮件，`To` 中可见彼此地址。
 
@@ -52,6 +51,8 @@ LONGBRIDGE_STATIC_INFO_TTL_SECONDS	长桥 static_info 进程内缓存秒数（�
 LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS	长桥连接关闭类异常后的冷却秒数（默认 15；冷却期内临时跳过 Longbridge，避免频繁重连）
 LONGBRIDGE_ENABLE_OVERNIGHT	设置为 false
 LONGBRIDGE_PUSH_CANDLESTICK_MODE	K 线推送模式：realtime 或 confirmed（默认 realtime）
+
+PRICE_RANGE_DAYS	顶部/底部判断区间交易日数（默认 60，允许 10-360）；20 日使用 20%/80% 阈值，60 日使用 18%/82%，120 日使用 15%/85%。
 
 传统认证需同时提供三个 Secret。OAuth 需同时提供 client ID 与缓存 Secret；如果只有 App Key 且无 Access Token，兼容将 App Key 视为 OAuth client ID。两种认证均提供时优先 OAuth，初始化失败再尝试完整三件套。
 

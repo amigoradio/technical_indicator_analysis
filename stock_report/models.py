@@ -70,7 +70,7 @@ class DailyBar:
     instrument_name: str | None = None
 
 
-def validate_bars(bars: list[DailyBar], target: date) -> list[DailyBar]:
+def validate_bars(bars: list[DailyBar], target: date, *, allow_previous: bool = False) -> list[DailyBar]:
     """Reject corrupt responses before accepting a provider as successful."""
     by_date = {}
     for bar in bars:
@@ -89,7 +89,7 @@ def validate_bars(bars: list[DailyBar], target: date) -> list[DailyBar]:
             raise ValueError("日 K 日期重复")
         by_date[bar.date] = bar
     ordered = sorted(by_date.values(), key=lambda bar: bar.date)
-    if not ordered or ordered[-1].date != target:
+    if not ordered or (not allow_previous and ordered[-1].date != target):
         latest = str(ordered[-1].date) if ordered else "无"
         raise ValueError(f"缺少当日日 K（最近数据日期：{latest}；可能休市、停牌或尚未更新）")
     return ordered

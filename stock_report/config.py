@@ -41,7 +41,7 @@ class Settings:
     smtp_security: str
     request_timeout: int
     attempts: int
-    history_days: int
+    range_days: int = 60
     config_errors: tuple[str, ...] = ()
 
     @classmethod
@@ -86,4 +86,4 @@ class Settings:
         return cls(stocks, sender, password, receivers, value("EMAIL_SENDER_NAME", "可爱炒股小秘"),
                    host, port, security, optional_integer("DATA_REQUEST_TIMEOUT", 60, 5, 300),
                    optional_integer("DATA_RETRY_ATTEMPTS", 2, 1, 3),
-                   optional_integer("HISTORY_DAYS", 120, 30, 365), tuple(config_errors))
+                   optional_integer("PRICE_RANGE_DAYS", 60, 10, 360), tuple(config_errors))

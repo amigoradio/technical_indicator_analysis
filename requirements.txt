@@ -2,4 +2,3 @@ akshare>=1.16,<2
 baostock>=0.8.9,<0.9
 longbridge>=4.0.5,<5
 tzdata>=2025.1
-exchange-calendars>=4.5,<5
