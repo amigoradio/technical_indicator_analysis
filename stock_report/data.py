@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from importlib import import_module
 import logging
 import multiprocessing as mp
+import os
 import random
 import time
 
@@ -13,6 +14,25 @@ from .models import DailyBar, Stock, validate_bars
 from .providers.longbridge import configured
 
 logger = logging.getLogger(__name__)
+
+_longbridge_cooldown_until = 0.0
+
+
+def _longbridge_cooldown_seconds() -> float:
+    raw = os.getenv("LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS", "15").strip()
+    try:
+        return max(0.0, float(raw))
+    except ValueError:
+        logger.warning("LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS 无效，使用默认 15 秒")
+        return 15.0
+
+
+def _is_longbridge_connection_closed(exc: Exception) -> bool:
+    text = str(exc).lower()
+    kind = type(exc).__name__.lower()
+    markers = ("connectionclosed", "connection_closed", "websocket", "brokenpipe",
+               "eoferror", "connectionreset", "connectionaborted", "endofstream")
+    return any(marker in kind or marker in text for marker in markers)
 
 
 @dataclass(frozen=True)
@@ -111,6 +131,7 @@ class DataService:
         self.settings = settings
 
     def fetch(self, stock: Stock, target: date) -> FetchResult:
+        global _longbridge_cooldown_until
         errors = []
         try:
             providers = provider_chain(stock)
@@ -119,6 +140,12 @@ class DataService:
             logger.exception("%s 数据源路由失败", stock.code)
             return FetchResult(stock, [], error=f"数据源路由失败：{type(exc).__name__}")
         for provider in providers:
+            if provider.name == "Longbridge" and time.monotonic() < _longbridge_cooldown_until:
+                remaining = _longbridge_cooldown_until - time.monotonic()
+                message = f"Longbridge 连接冷却中（剩余约 {remaining:.1f} 秒）"
+                logger.warning("%s / %s", stock.code, message)
+                errors.append(f"Longbridge: {message}")
+                continue
             provider_errors = []
             for attempt in range(1, self.settings.attempts + 1):
                 delay = random.uniform(2, 5) if attempt == 1 else min(2 ** (attempt + 2), 30) + random.uniform(0, 2)
@@ -137,6 +164,11 @@ class DataService:
                     detail = f"{provider.name}: {exc}"
                     provider_errors.append(detail)
                     logger.warning("%s / %s", stock.code, detail)
+                    if provider.name == "Longbridge" and _is_longbridge_connection_closed(exc):
+                        seconds = _longbridge_cooldown_seconds()
+                        _longbridge_cooldown_until = time.monotonic() + seconds
+                        logger.warning("Longbridge 连接关闭异常，冷却 %.1f 秒", seconds)
+                        break
             errors.extend(provider_errors or [f"{provider.name}: 未知错误"])
             logger.info("%s / %s 已耗尽重试，尝试下一数据源", stock.code, provider.name)
         logger.error("%s 未能获得数据", stock.code)

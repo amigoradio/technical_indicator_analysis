@@ -60,6 +60,7 @@ jobs:
           LONGBRIDGE_HTTP_URL: ${{ secrets.LONGBRIDGE_HTTP_URL }}
           LONGBRIDGE_QUOTE_WS_URL: ${{ secrets.LONGBRIDGE_QUOTE_WS_URL }}
           LONGBRIDGE_TRADE_WS_URL: ${{ secrets.LONGBRIDGE_TRADE_WS_URL }}
+          LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS: ${{ secrets.LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS }}
         run: |
           if [ "$FORCE_RUN" = "true" ]; then
             python -m stock_report --force-run

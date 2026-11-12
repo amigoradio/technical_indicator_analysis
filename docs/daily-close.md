@@ -43,10 +43,15 @@
 | `LONGBRIDGE_ACCESS_TOKEN` | 传统 API Key 三件套之一 |
 | `LONGBRIDGE_OAUTH_CLIENT_ID` | OAuth 认证的公开 client ID |
 | `LONGBRIDGE_OAUTH_TOKEN_CACHE_B64` | 已授权 SDK token 缓存文件的 Base64 文本，供无交互任务恢复 |
-| `LONGBRIDGE_REGION` | 可选 `cn` / `hk`，同时设置 SDK 的 `LONGPORT_REGION` 并补全区域端点 |
-| `LONGBRIDGE_HTTP_URL` | 可选 HTTP 端点覆盖 |
-| `LONGBRIDGE_QUOTE_WS_URL` | 可选行情 WebSocket 端点覆盖 |
-| `LONGBRIDGE_TRADE_WS_URL` | 可选交易 WebSocket 端点覆盖（任务不下单） |
+| `LONGBRIDGE_REGION` | 默认hk 覆盖接入点；SDK 会按网络自动选择，默认 hk，若判断不正确可设置（如 cn、hk） |
+| `LONGBRIDGE_HTTP_URL` | HTTP 接口地址（默认 https://openapi.longbridge.com） |
+| `LONGBRIDGE_QUOTE_WS_URL` | 行情 WebSocket 地址（默认 wss://openapi-quote.longbridge.com/v2） |
+| `LONGBRIDGE_TRADE_WS_URL` | 交易 WebSocket 地址（默认 wss://openapi-trade.longbridge.com/v2） |
+
+LONGBRIDGE_STATIC_INFO_TTL_SECONDS	长桥 static_info 进程内缓存秒数（默认 86400，0=不缓存）
+LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS	长桥连接关闭类异常后的冷却秒数（默认 15；冷却期内临时跳过 Longbridge，避免频繁重连）
+LONGBRIDGE_ENABLE_OVERNIGHT	设置为 false
+LONGBRIDGE_PUSH_CANDLESTICK_MODE	K 线推送模式：realtime 或 confirmed（默认 realtime）
 
 传统认证需同时提供三个 Secret。OAuth 需同时提供 client ID 与缓存 Secret；如果只有 App Key 且无 Access Token，兼容将 App Key 视为 OAuth client ID。两种认证均提供时优先 OAuth，初始化失败再尝试完整三件套。
 

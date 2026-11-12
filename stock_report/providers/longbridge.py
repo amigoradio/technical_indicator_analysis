@@ -30,17 +30,17 @@ def build_config():
             del os.environ[key]
     os.environ.setdefault("LONGBRIDGE_PRINT_QUOTE_PACKAGES", "false")
     region = value("LONGBRIDGE_REGION").lower()
+    domain = "longbridge.cn" if region == "cn" else "longbridge.com"
     if region:
         if region not in ("cn", "hk"):
             raise ValueError("LONGBRIDGE_REGION 仅支持 cn 或 hk")
         os.environ["LONGPORT_REGION"] = region
-        domain = "longbridge.cn" if region == "cn" else "longbridge.com"
-        for name, url in {
-            "HTTP": f"https://openapi.{domain}",
-            "QUOTE_WS": f"wss://openapi-quote.{domain}/v2",
-            "TRADE_WS": f"wss://openapi-trade.{domain}/v2",
-        }.items():
-            os.environ.setdefault(f"LONGBRIDGE_{name}_URL", url)
+    for name, url in {
+        "HTTP": f"https://openapi.{domain}",
+        "QUOTE_WS": f"wss://openapi-quote.{domain}/v2",
+        "TRADE_WS": f"wss://openapi-trade.{domain}/v2",
+    }.items():
+        os.environ.setdefault(f"LONGBRIDGE_{name}_URL", url)
     extra = {name: value(f"LONGBRIDGE_{name.upper()}")
              for name in ("http_url", "quote_ws_url", "trade_ws_url")
              if value(f"LONGBRIDGE_{name.upper()}")}
