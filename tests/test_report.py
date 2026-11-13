@@ -202,12 +202,16 @@ class ReportTests(unittest.TestCase):
         sdk = MagicMock()
         os.environ.update(LONGBRIDGE_APP_KEY="key", LONGBRIDGE_APP_SECRET="secret",
                           LONGBRIDGE_ACCESS_TOKEN="token", LONGBRIDGE_HTTP_URL="",
-                          LONGBRIDGE_REGION="hk")
+                          LONGBRIDGE_REGION="hk", LONGPORT_REGION="cn",
+                          LONGBRIDGE_QUOTE_WS_URL="wss://obsolete.invalid",
+                          LONGBRIDGE_TRADE_WS_URL="wss://obsolete.invalid")
         with patch.dict("sys.modules", {"longbridge.openapi": sdk}):
             longbridge.build_config()
-        self.assertEqual(os.environ["LONGPORT_REGION"], "hk")
+        for name in ("LONGPORT_REGION", "LONGBRIDGE_REGION", "LONGBRIDGE_HTTP_URL",
+                     "LONGBRIDGE_QUOTE_WS_URL", "LONGBRIDGE_TRADE_WS_URL"):
+            self.assertNotIn(name, os.environ)
         self.assertEqual(sdk.Config.from_apikey.call_args.args, ("key", "secret", "token"))
-        self.assertEqual(sdk.Config.from_apikey.call_args.kwargs["http_url"], "https://openapi.longbridge.com")
+        self.assertEqual(sdk.Config.from_apikey.call_args.kwargs, {"enable_print_quote_packages": False})
         self.assertFalse(sdk.Config.from_apikey.call_args.kwargs["enable_print_quote_packages"])
 
     def test_oauth_never_launches_interactive_browser(self):
@@ -231,6 +235,7 @@ class ReportTests(unittest.TestCase):
                 self.assertEqual(cache.read_bytes(), refreshed)
         sdk.OAuthBuilder.return_value.build.assert_called_with(longbridge.reject_interactive_auth)
         self.assertEqual(sdk.Config.from_oauth.call_count, 2)
+        self.assertEqual(sdk.Config.from_oauth.call_args.kwargs, {"enable_print_quote_packages": False})
 
     def test_oauth_failure_falls_back_to_complete_legacy(self):
         sdk = MagicMock()

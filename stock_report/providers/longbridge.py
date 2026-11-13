@@ -29,22 +29,12 @@ def build_config():
         if key.startswith("LONGBRIDGE_") and not os.environ[key].strip():
             del os.environ[key]
     os.environ.setdefault("LONGBRIDGE_PRINT_QUOTE_PACKAGES", "false")
-    region = value("LONGBRIDGE_REGION").lower()
-    domain = "longbridge.cn" if region == "cn" else "longbridge.com"
-    if region:
-        if region not in ("cn", "hk"):
-            raise ValueError("LONGBRIDGE_REGION 仅支持 cn 或 hk")
-        os.environ["LONGPORT_REGION"] = region
-    for name, url in {
-        "HTTP": f"https://openapi.{domain}",
-        "QUOTE_WS": f"wss://openapi-quote.{domain}/v2",
-        "TRADE_WS": f"wss://openapi-trade.{domain}/v2",
-    }.items():
-        os.environ.setdefault(f"LONGBRIDGE_{name}_URL", url)
-    extra = {name: value(f"LONGBRIDGE_{name.upper()}")
-             for name in ("http_url", "quote_ws_url", "trade_ws_url")
-             if value(f"LONGBRIDGE_{name.upper()}")}
-    extra["enable_print_quote_packages"] = False
+    # Ignore retired overrides, including those inherited from a local shell.
+    # The SDK must choose endpoints just as Config.from_oauth(oauth) does.
+    for name in ("LONGPORT_REGION", "LONGBRIDGE_REGION", "LONGBRIDGE_HTTP_URL",
+                 "LONGBRIDGE_QUOTE_WS_URL", "LONGBRIDGE_TRADE_WS_URL"):
+        os.environ.pop(name, None)
+    extra = {"enable_print_quote_packages": False}
     key, secret, token = (value(f"LONGBRIDGE_{name}")
                           for name in ("APP_KEY", "APP_SECRET", "ACCESS_TOKEN"))
     client = value("LONGBRIDGE_OAUTH_CLIENT_ID") or (key if not token else "")
