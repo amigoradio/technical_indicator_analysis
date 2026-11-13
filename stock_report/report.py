@@ -14,6 +14,20 @@ def _volume_text(value: bool | None) -> str:
     return "是" if value else "否" if value is not None else "数据不足"
 
 
+def _price_position_text(percentile: float | None) -> str:
+    if percentile is None:
+        return "数据不足"
+    if percentile <= 15:
+        return "底部"
+    if percentile <= 30:
+        return "中下部"
+    if percentile < 70:
+        return "中部"
+    if percentile < 85:
+        return "中上部"
+    return "顶部"
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
     subject = f"股票日K收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -58,17 +72,18 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                             analysis.macd_cross == "死叉" and analysis.latest.close < ma5 and ma5 < previous_ma5)):
                         macd_signals.append("5日线拐头")
                 macd_text = "，".join(macd_signals)
+                position_text = _price_position_text(analysis.range_percentile)
                 text.extend([
                     f"收盘: {number(analysis.latest.close)}，涨跌: {number(analysis.change_pct)}%",
                     f"MACD: {macd_text}",
-                    f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{analysis.range_position}）",
+                    f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
                     f"策略结论: {action}",
                 ])
                 html.append(
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>"
                     f"<p>MACD：{escape(macd_text)}</p>"
-                    f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{escape(analysis.range_position)}）</p>"
+                    f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>"
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>"
                     f"<p><strong>策略结论：{action}</strong></p></section>"
                 )
