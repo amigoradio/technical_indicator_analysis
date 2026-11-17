@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from .models import DailyBar
-from .indicators import AlignmentResult, SarResult, moving_average_alignment, sar_indicator
+from .indicators import AlignmentResult, SarResult, TrendResult, moving_average_alignment, sar_indicator, trend_indicators
 from .strategies import DirectionSignal, strategy_two
 
 
@@ -47,6 +47,7 @@ class Analysis:
     sar: SarResult
     alignment: AlignmentResult
     strategy_two: DirectionSignal
+    trend: TrendResult
 
 
 def moving_average(values: list[float], period: int) -> float | None:
@@ -163,9 +164,11 @@ def analyze(bars: list[DailyBar], range_days: int = 60) -> Analysis:
     previous = ordered[-2].close if len(ordered) > 1 else None
     sar = sar_indicator(ordered)
     alignment = moving_average_alignment(ordered)
+    trend = trend_indicators(ordered)
     return Analysis(latest, (latest.close / previous - 1) * 100 if previous else None, averages,
                     macd.macd, macd.signal, macd.histogram,
                     f"{macd.zone}{macd.crossover}" if macd.crossover != "无" else macd.zone, macd.crossover, macd.zone,
                     range_days, percentile, position, volume_average(volumes, 120), above_today, above_three,
                     strategy.long_score, strategy.short_score, strategy.long_reasons, strategy.short_reasons,
-                    sar, alignment, strategy_two(sar, alignment))
+                    sar, alignment, strategy_two(sar, alignment, trend, latest.close,
+                                                  above_today), trend)

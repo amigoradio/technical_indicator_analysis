@@ -81,7 +81,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     f"策略一（MACD）结论: {action}",
                     f"SAR: {analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}",
                     f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
-                    f"策略二（SAR与均线）结论: {analysis.strategy_two.action}",
+                    f"策略二（SAR与均线）结论: {analysis.strategy_two.action}；可信度: {analysis.strategy_two.confidence}/5；{analysis.strategy_two.reason}",
                 ])
                 html.append(
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>"
@@ -91,7 +91,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     f"<p><strong>策略一（MACD）结论：{action}</strong></p>"
                     f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>"
                     f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>"
-                    f"<p><strong>策略二（SAR与均线）结论：{analysis.strategy_two.action}</strong></p></section>"
+                    f"<p><strong>策略二（SAR与均线）结论：{analysis.strategy_two.action}（可信度 {analysis.strategy_two.confidence}/5）</strong>：{escape(analysis.strategy_two.reason)}</p></section>"
                 )
             except Exception as exc:
                 error = f"技术分析失败：{type(exc).__name__}"
