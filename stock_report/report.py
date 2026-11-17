@@ -78,14 +78,20 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     f"MACD: {macd_text}",
                     f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
-                    f"策略结论: {action}",
+                    f"策略一（MACD）结论: {action}",
+                    f"SAR: {analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}",
+                    f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
+                    f"策略二（SAR与均线）结论: {analysis.strategy_two.action}",
                 ])
                 html.append(
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>"
                     f"<p>MACD：{escape(macd_text)}</p>"
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>"
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>"
-                    f"<p><strong>策略结论：{action}</strong></p></section>"
+                    f"<p><strong>策略一（MACD）结论：{action}</strong></p>"
+                    f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>"
+                    f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>"
+                    f"<p><strong>策略二（SAR与均线）结论：{analysis.strategy_two.action}</strong></p></section>"
                 )
             except Exception as exc:
                 error = f"技术分析失败：{type(exc).__name__}"
