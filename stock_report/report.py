@@ -28,13 +28,41 @@ def _price_position_text(percentile: float | None) -> str:
     return "顶部"
 
 
+def _colored_action(value: str) -> str:
+    if value == "做多":
+        return "<span style='color:#d00000'>做多</span>"
+    if value == "做空":
+        return "<span style='color:#008000'>做空</span>"
+    return escape(value)
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
     subject = f"股票日K收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
     for result in results:
         groups[result.stock.market].append(result)
-    text = [subject, "一、A股股票 / ETF 分析"]
-    html = [f"<h2>{escape(subject)}</h2><h3>一、A股股票 / ETF 分析</h3>"]
+    summary_rows = []
+    for result in results:
+        name = next((bar.instrument_name for bar in result.bars if bar.instrument_name), "名称暂缺")
+        actions = ["不操作", "不操作"]
+        if result.bars:
+            try:
+                summary_analysis = analyze(result.bars, range_days)
+                actions[0] = ("做多" if summary_analysis.long_score else
+                              "做空" if summary_analysis.short_score else "不操作")
+                actions[1] = summary_analysis.strategy_two.action
+            except Exception:
+                pass
+        summary_rows.append((result.stock.code, name, actions))
+    text = [subject, "总结"]
+    text.append("代码 | 名称 | 策略一（MACD） | 策略二（SAR与均线）")
+    text.extend(f"{code} | {name} | {actions[0]} | {actions[1]}" for code, name, actions in summary_rows)
+    html = [f"<h2>{escape(subject)}</h2><h3>总结</h3><table border='1' cellpadding='6' cellspacing='0'><thead><tr><th>代码</th><th>名称</th><th>策略一（MACD）</th><th>策略二（SAR与均线）</th></tr></thead><tbody>"]
+    html.extend(
+        f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{_colored_action(actions[0])}</td><td>{_colored_action(actions[1])}</td></tr>"
+        for code, name, actions in summary_rows
+    )
+    html.append("</tbody></table><h3>一、A股股票 / ETF 分析</h3>")
     for market in ("CN", "HK"):
         if market == "HK":
             text.append("\n二、港股分析")
@@ -73,6 +101,19 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                         macd_signals.append("5日线拐头")
                 macd_text = "，".join(macd_signals)
                 position_text = _price_position_text(analysis.range_percentile)
+                strategy_two_summary = f"策略二（SAR与均线）结论: {analysis.strategy_two.action}"
+                strategy_one_html = (f"<p><strong>策略一（MACD）结论：</strong>"
+                                     f"{_colored_action(action)}</p>")
+                strategy_two_html = (f"<p><strong>策略二（SAR与均线）结论：</strong>"
+                                     f"{_colored_action(analysis.strategy_two.action)}</p>")
+                if analysis.strategy_two.action in ("做多", "做空"):
+                    strategy_two_summary += (f"；可信度: {analysis.strategy_two.confidence}/5；"
+                                             f"{analysis.strategy_two.reason}")
+                    strategy_two_html = (
+                        f"<p><strong>策略二（SAR与均线）结论：</strong>{_colored_action(analysis.strategy_two.action)}"
+                        f"（可信度 {analysis.strategy_two.confidence}/5）："
+                        f"{escape(analysis.strategy_two.reason)}</p>"
+                    )
                 text.extend([
                     f"收盘: {number(analysis.latest.close)}，涨跌: {number(analysis.change_pct)}%",
                     f"MACD: {macd_text}",
@@ -81,18 +122,19 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     f"策略一（MACD）结论: {action}",
                     f"SAR: {analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}",
                     f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
-                    f"策略二（SAR与均线）结论: {analysis.strategy_two.action}；可信度: {analysis.strategy_two.confidence}/5；{analysis.strategy_two.reason}",
+                    strategy_two_summary,
                 ])
-                html.append(
-                    f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>"
-                    f"<p>MACD：{escape(macd_text)}</p>"
-                    f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>"
-                    f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>"
-                    f"<p><strong>策略一（MACD）结论：{action}</strong></p>"
-                    f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>"
-                    f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>"
-                    f"<p><strong>策略二（SAR与均线）结论：{analysis.strategy_two.action}（可信度 {analysis.strategy_two.confidence}/5）</strong>：{escape(analysis.strategy_two.reason)}</p></section>"
-                )
+                html.append("".join([
+                    f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>",
+                    f"<p>MACD：{escape(macd_text)}</p>",
+                    f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
+                    f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
+                    strategy_one_html,
+                    f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>",
+                    f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>",
+                    strategy_two_html,
+                    "</section>",
+                ]))
             except Exception as exc:
                 error = f"技术分析失败：{type(exc).__name__}"
                 text.append(f"个股错误: {error}")
