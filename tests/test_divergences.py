@@ -69,13 +69,16 @@ class DivergenceTests(unittest.TestCase):
             FetchResult(Stock.parse("511090"), top, "Fake"),
             FetchResult(Stock.parse("hk00700"), bottom, "Fake"),
             FetchResult(Stock.parse("600519"), bars_from([10] * 51), "Fake"),
+            FetchResult(Stock.parse("000001"), bars_from([10]), "Fake"),
         ]
         _, body, html = render(results, top[-1].date)
-        self.assertIn("代码 | 名称 | 背离 | 策略一", body)
-        self.assertIn("<th>名称</th><th>背离</th>", html)
-        self.assertIn("511090 | <标的> | 背离", body)
-        self.assertIn("<td>&lt;标的&gt;</td><td>背离</td>", html)
-        self.assertIn("600519 | 名称暂缺 | 无", body)
+        self.assertIn("代码 | 名称 | 涨跌情况 | 背离情况 | 策略一", body)
+        self.assertIn("<th>名称</th><th>涨跌情况</th><th>背离情况</th>", html)
+        self.assertIn("511090 | <标的> | -4.04% | 背离", body)
+        self.assertIn("<td>&lt;标的&gt;</td><td>-4.04%</td><td>背离</td>", html)
+        self.assertIn("hk00700 | 名称暂缺 | +1.99% | 背离", body)
+        self.assertIn("600519 | 名称暂缺 | 0.00% | 无", body)
+        self.assertIn("000001 | 名称暂缺 | — | 无", body)
         for output in (body, html):
             self.assertIn("MACD 与价格：顶背离", output)
             self.assertIn("RSI 与价格：底背离", output)

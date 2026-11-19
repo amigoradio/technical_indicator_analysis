@@ -52,24 +52,28 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         action = "不操作"
         second_action = "不操作"
         divergence = "无"
+        change_text = "—"
         if analysis is not None:
             action = "做多" if analysis.long_score else "做空" if analysis.short_score else "不操作"
             second_action = analysis.strategy_two.action
+            if analysis.change_pct is not None:
+                change = round(analysis.change_pct, 2)
+                change_text = f"{change:+.2f}%" if change else "0.00%"
             if analysis.macd_divergences or analysis.rsi_divergences:
                 divergence = "背离"
         groups[result.stock.market].append((result, name, analysis, analysis_error, action))
-        summary_rows.append((result.stock.code, name, divergence, action, second_action))
+        summary_rows.append((result.stock.code, name, change_text, divergence, action, second_action))
     text = [subject, "总结"]
-    text.append("代码 | 名称 | 背离 | 策略一（MACD） | 策略二（SAR与均线）")
+    text.append("代码 | 名称 | 涨跌情况 | 背离情况 | 策略一（MACD） | 策略二（SAR与均线）")
     text.extend(" | ".join(row) for row in summary_rows)
     html = [f"<h2>{escape(subject)}</h2><h3>总结</h3>"
             "<table border='1' cellpadding='6' cellspacing='0'><thead><tr>"
-            "<th>代码</th><th>名称</th><th>背离</th><th>策略一（MACD）</th>"
+            "<th>代码</th><th>名称</th><th>涨跌情况</th><th>背离情况</th><th>策略一（MACD）</th>"
             "<th>策略二（SAR与均线）</th></tr></thead><tbody>"]
     html.extend(
-        f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{divergence}</td>"
+        f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{change_text}</td><td>{divergence}</td>"
         f"<td>{_colored_action(action)}</td><td>{_colored_action(second_action)}</td></tr>"
-        for code, name, divergence, action, second_action in summary_rows
+        for code, name, change_text, divergence, action, second_action in summary_rows
     )
     html.append("</tbody></table><h3>一、A股股票 / ETF 分析</h3>")
     for market in ("CN", "HK"):
