@@ -36,6 +36,28 @@ def _colored_action(value: str) -> str:
     return escape(value)
 
 
+def _colored_indicator_text(value: str) -> str:
+    """Color only indicator state words; surrounding explanation stays black."""
+    escaped = escape(value)
+    return (escaped.replace("顶背离", "<span style='color:#008000'>顶背离</span>")
+            .replace("底背离", "<span style='color:#d00000'>底背离</span>")
+            .replace("超买", "<span style='color:#d00000'>超买</span>")
+            .replace("超卖", "<span style='color:#008000'>超卖</span>"))
+
+
+def _color_indicator_markup(value: str) -> str:
+    """Color indicator labels in an already escaped HTML fragment."""
+    labels = (
+        ("顶背离", "#008000"),
+        ("底背离", "#d00000"),
+        ("超买", "#d00000"),
+        ("超卖", "#008000"),
+    )
+    for label, color in labels:
+        value = value.replace(label, f"<span style='color:{color}'>{label}</span>")
+    return value
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
     subject = f"股票日K收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -114,7 +136,9 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                             analysis.macd_cross == "死叉" and analysis.latest.close < ma5 and ma5 < previous_ma5)):
                         macd_signals.append("5日线拐头")
                 macd_text = "，".join(macd_signals)
-                macd_details = [f"MACD 与价格：{'、'.join(analysis.macd_divergences)}"] if analysis.macd_divergences else []
+                if analysis.macd_divergences:
+                    macd_text = f"{macd_text}{chr(12289)}{chr(12289).join(analysis.macd_divergences)}"
+                macd_text = " ".join(macd_signals + list(analysis.macd_divergences))
                 rsi_details = []
                 rsi = analysis.trend.rsi
                 if rsi is not None:
@@ -124,6 +148,9 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                         rsi_details.append(f"RSI(14) 超卖（{number(rsi)}）")
                 if analysis.rsi_divergences:
                     rsi_details.append(f"RSI 与价格：{'、'.join(analysis.rsi_divergences)}")
+                sar_text = f"SAR：{analysis.sar.direction}"
+                if analysis.sar.recent_reversal != "无":
+                    sar_text += f"（{analysis.sar.recent_reversal}）"
                 position_text = _price_position_text(analysis.range_percentile)
                 strategy_two_summary = f"策略二（SAR与均线）结论: {analysis.strategy_two.action}"
                 strategy_one_html = (f"<p><strong>策略一（MACD）结论：</strong>"
@@ -141,11 +168,10 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 text.extend([
                     f"收盘: {number(analysis.latest.close)}，涨跌: {number(analysis.change_pct)}%",
                     f"MACD: {macd_text}",
-                    *macd_details,
                     f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
                     f"策略一（MACD）结论: {action}",
-                    f"SAR: {analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}",
+                    sar_text,
                     f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
                     *rsi_details,
                     strategy_two_summary,
@@ -153,13 +179,12 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 html.append("".join([
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>",
                     f"<p>MACD：{escape(macd_text)}</p>",
-                    *(f"<p>{escape(detail)}</p>" for detail in macd_details),
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
                     strategy_one_html,
-                    f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>",
+                    f"<p>{escape(sar_text)}</p>",
                     f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>",
-                    *(f"<p>{escape(detail)}</p>" for detail in rsi_details),
+                    *(f"<p>{_colored_indicator_text(detail)}</p>" for detail in rsi_details),
                     strategy_two_html,
                     "</section>",
                 ]))
@@ -170,5 +195,6 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
     if errors:
         text.extend(["\n三、整体错误信息", *[f"- {error}" for error in errors]])
         html.append("<h3>三、整体错误信息</h3><ul>" + "".join(f"<li>{escape(error)}</li>" for error in errors) + "</ul>")
+    html = [_color_indicator_markup(fragment) if "MACD：" in fragment else fragment for fragment in html]
     body = "<!doctype html><html lang='zh-CN'><meta charset='utf-8'><style>.error{color:#b00020}section{margin:12px 0 20px}</style><body>" + "".join(html) + "</body></html>"
     return subject, "\n".join(text), body

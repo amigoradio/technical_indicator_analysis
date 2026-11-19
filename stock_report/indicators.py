@@ -10,6 +10,7 @@ class SarResult:
     value: float | None
     direction: str
     reversal: str
+    recent_reversal: str = "无"
 
 
 @dataclass(frozen=True)
@@ -81,12 +82,14 @@ def sar_indicator(bars: list[DailyBar], step: float = 0.02, maximum: float = 0.2
         raise ValueError("SAR requires 0 < step <= maximum")
     ordered = sorted(bars, key=lambda bar: bar.date)
     if len(ordered) < 2:
-        return SarResult(None, "数据不足", "无")
+        return SarResult(None, "数据不足", "无", "无")
     rising = ordered[1].close >= ordered[0].close
     value = ordered[0].low if rising else ordered[0].high
     extreme = ordered[0].high if rising else ordered[0].low
     acceleration = step
     reversal = "无"
+    last_reversal_index = None
+    last_reversal = "无"
     for index in range(1, len(ordered)):
         bar = ordered[index]
         previous = ordered[max(0, index - 2):index]
@@ -97,6 +100,7 @@ def sar_indicator(bars: list[DailyBar], step: float = 0.02, maximum: float = 0.2
             if bar.low < candidate:
                 rising, value, extreme, acceleration = False, max(extreme, bar.high), bar.low, step
                 reversal = "翻绿"
+                last_reversal_index, last_reversal = index, reversal
             else:
                 value = candidate
                 if bar.high > extreme:
@@ -106,11 +110,16 @@ def sar_indicator(bars: list[DailyBar], step: float = 0.02, maximum: float = 0.2
             if bar.high > candidate:
                 rising, value, extreme, acceleration = True, min(extreme, bar.low), bar.high, step
                 reversal = "翻红"
+                last_reversal_index, last_reversal = index, reversal
             else:
                 value = candidate
                 if bar.low < extreme:
                     extreme, acceleration = bar.low, min(maximum, acceleration + step)
-    return SarResult(value, "红色" if rising else "绿色", reversal)
+    recent_reversal = "无"
+    if last_reversal_index is not None and len(ordered) - 1 - last_reversal_index <= 2:
+        days = ("今日", "昨天", "前天")
+        recent_reversal = f"{days[len(ordered) - 1 - last_reversal_index]}{last_reversal}"
+    return SarResult(value, "红色" if rising else "绿色", reversal, recent_reversal)
 
 
 def moving_average_alignment(bars: list[DailyBar], adhesion: float = 0.005) -> AlignmentResult:

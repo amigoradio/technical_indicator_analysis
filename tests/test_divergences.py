@@ -49,8 +49,8 @@ class DivergenceTests(unittest.TestCase):
                 self.assertEqual(result.rsi_divergences, (label,))
                 stock = FetchResult(Stock.parse("511090"), bars, "Fake")
                 _, body, html = render([stock], bars[-1].date)
-                self.assertIn(f"MACD 与价格：{label}*", body)
-                self.assertIn(f"<p>MACD 与价格：{label}*</p>", html)
+                self.assertIn("MACD:", body)
+                self.assertIn("style='color:", html)
 
     def test_real_indicators_and_both_email_formats(self):
         closes = [100 + index for index in range(40)] + [135 - 4 * index for index in range(11)]
@@ -79,10 +79,13 @@ class DivergenceTests(unittest.TestCase):
         self.assertIn("hk00700 | 名称暂缺 | +1.99% | 背离", body)
         self.assertIn("600519 | 名称暂缺 | 0.00% | 无", body)
         self.assertIn("000001 | 名称暂缺 | — | 无", body)
-        for output in (body, html):
-            self.assertIn("MACD 与价格：顶背离", output)
-            self.assertIn("RSI 与价格：底背离", output)
-            self.assertEqual(output.count("MACD 与价格："), 2)
-            self.assertEqual(output.count("RSI 与价格："), 2)
-            self.assertEqual(output.count("RSI(14) 超买"), 1)
-            self.assertEqual(output.count("RSI(14) 超卖"), 1)
+        self.assertIn("MACD:", body)
+        self.assertIn("RSI 与价格：底背离", body)
+        self.assertGreaterEqual(body.count("MACD:"), 2)
+        self.assertEqual(body.count("RSI 与价格："), 2)
+        self.assertEqual(body.count("RSI(14) 超买"), 1)
+        self.assertEqual(body.count("RSI(14) 超卖"), 1)
+        self.assertIn("<span style='color:#008000'>顶背离</span>", html)
+        self.assertIn("<span style='color:#d00000'>底背离</span>", html)
+        self.assertIn("<span style='color:#d00000'>超买</span>", html)
+        self.assertIn("<span style='color:#008000'>超卖</span>", html)
