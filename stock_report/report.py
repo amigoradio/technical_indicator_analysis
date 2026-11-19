@@ -58,6 +58,13 @@ def _color_indicator_markup(value: str) -> str:
     return value
 
 
+def _colored_sar_text(value: str) -> str:
+    """Color the complete SAR state, including a recent reversal label."""
+    color = "#008000" if "绿色" in value else "#d00000" if "红色" in value else None
+    escaped = escape(value)
+    return f"<span style='color:{color}'>{escaped}</span>" if color else escaped
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
     subject = f"股票日K收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -182,7 +189,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
                     strategy_one_html,
-                    f"<p>{escape(sar_text)}</p>",
+                    f"<p>{_colored_sar_text(sar_text)}</p>",
                     f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>",
                     *(f"<p>{_colored_indicator_text(detail)}</p>" for detail in rsi_details),
                     strategy_two_html,
