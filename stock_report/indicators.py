@@ -27,6 +27,52 @@ class TrendResult:
     adx_rising: bool | None
     obv_rising_three_days: bool | None
     rsi: float | None
+    rsi_history: tuple[float | None, ...] = ()
+
+
+@dataclass(frozen=True)
+class PriceDivergence:
+    label: str
+    confirmed_at: int
+
+
+def price_divergence_signals(
+    bars: list[DailyBar], indicator: tuple[float | None, ...],
+) -> tuple[PriceDivergence, ...]:
+    """Compare oscillator values at confirmed price pivots on the same dates."""
+    if len(bars) != len(indicator):
+        raise ValueError("price and indicator history must have the same length")
+    # Input is chronological. Each pivot needs two bars on either side.
+    pivot_radius = 2
+    size = len(bars)
+    highs, lows = [], []
+    for index in range(max(pivot_radius, size - 60), size - pivot_radius):
+        high, low = bars[index].high, bars[index].low
+        neighbors = bars[index - pivot_radius:index] + bars[index + 1:index + pivot_radius + 1]
+        if all(high > bar.high for bar in neighbors):
+            highs.append(index)
+        if all(low < bar.low for bar in neighbors):
+            lows.append(index)
+
+    signals = []
+    for pivots, is_top in ((highs, True), (lows, False)):
+        if len(pivots) < 2 or pivots[-1] < size - 10:
+            continue
+        previous, latest = pivots[-2:]
+        old_value, new_value = indicator[previous], indicator[latest]
+        if old_value is None or new_value is None:
+            continue
+        if is_top and bars[latest].high > bars[previous].high and new_value < old_value:
+            signals.append(PriceDivergence("顶背离", latest + pivot_radius))
+        if not is_top and bars[latest].low < bars[previous].low and new_value > old_value:
+            signals.append(PriceDivergence("底背离", latest + pivot_radius))
+    return tuple(signals)
+
+
+def price_divergences(
+    bars: list[DailyBar], indicator: tuple[float | None, ...],
+) -> tuple[str, ...]:
+    return tuple(signal.label for signal in price_divergence_signals(bars, indicator))
 
 
 def sar_indicator(bars: list[DailyBar], step: float = 0.02, maximum: float = 0.2) -> SarResult:
@@ -92,34 +138,45 @@ def vwap_indicator(bars: list[DailyBar]) -> float | None:
     return sum((bar.high + bar.low + bar.close) / 3 * bar.volume for bar in bars) / total_volume if total_volume else None
 
 
-def rsi_indicator(closes: list[float], period: int = 14) -> float | None:
+def _rsi_from_averages(gain: float, loss: float) -> float:
+    if loss == 0:
+        return 100.0 if gain > 0 else 50.0
+    return 100 - 100 / (1 + gain / loss)
+
+
+def rsi_series(closes: list[float], period: int = 14) -> tuple[float | None, ...]:
     if len(closes) <= period:
-        return None
+        return (None,) * len(closes)
     changes = [closes[index] - closes[index - 1] for index in range(1, len(closes))]
     gains = [max(change, 0) for change in changes]
     losses = [max(-change, 0) for change in changes]
     average_gain = sum(gains[:period]) / period
     average_loss = sum(losses[:period]) / period
+    values: list[float | None] = [None] * period
+    values.append(_rsi_from_averages(average_gain, average_loss))
     for gain, loss in zip(gains[period:], losses[period:]):
         average_gain = (average_gain * (period - 1) + gain) / period
         average_loss = (average_loss * (period - 1) + loss) / period
-    if average_loss == 0:
-        return 100.0
-    return 100 - 100 / (1 + average_gain / average_loss)
+        values.append(_rsi_from_averages(average_gain, average_loss))
+    return tuple(values)
+
+
+def rsi_indicator(closes: list[float], period: int = 14) -> float | None:
+    values = rsi_series(closes, period)
+    return values[-1] if values else None
 
 
 def trend_indicators(bars: list[DailyBar]) -> TrendResult:
     ordered = sorted(bars, key=lambda bar: bar.date)
     if len(ordered) < 15:
-        return TrendResult(vwap_indicator(ordered), None, None, None, None, None, None)
+        return TrendResult(vwap_indicator(ordered), None, None, None, None, None, None,
+                           (None,) * len(ordered))
     tr, plus_dm, minus_dm = [], [], []
     for current, previous in zip(ordered[1:], ordered[:-1]):
         tr.append(max(current.high - current.low, abs(current.high - previous.close), abs(current.low - previous.close)))
         plus_dm.append(current.high - previous.high if current.high - previous.high > previous.low - current.low and current.high > previous.high else 0.0)
         minus_dm.append(previous.low - current.low if previous.low - current.low > current.high - previous.high and current.low < previous.low else 0.0)
     period = 14
-    if len(tr) < period:
-        return TrendResult(vwap_indicator(ordered), None, None, None, None, None, rsi_indicator([b.close for b in ordered]))
     atr = sum(tr[-period:]) / period
     plus = sum(plus_dm[-period:]) / period
     minus = sum(minus_dm[-period:]) / period
@@ -137,7 +194,8 @@ def trend_indicators(bars: list[DailyBar]) -> TrendResult:
     closes = [bar.close for bar in ordered]
     for index in range(1, len(ordered)):
         obv.append(obv[-1] + (ordered[index].volume if closes[index] > closes[index - 1] else -ordered[index].volume if closes[index] < closes[index - 1] else 0))
+    rsi_history = rsi_series(closes)
     return TrendResult(vwap_indicator(ordered), adx_values[-1], plus_di, minus_di,
                        len(adx_values) > 1 and adx_values[-1] > adx_values[-2],
                        len(obv) >= 4 and obv[-1] > obv[-2] > obv[-3] > obv[-4],
-                       rsi_indicator(closes))
+                       rsi_history[-1], rsi_history)

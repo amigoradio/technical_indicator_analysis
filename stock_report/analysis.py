@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass
 from .models import DailyBar
-from .indicators import AlignmentResult, SarResult, TrendResult, moving_average_alignment, sar_indicator, trend_indicators
+from .indicators import (
+    AlignmentResult, SarResult, TrendResult, moving_average_alignment,
+    price_divergence_signals, price_divergences, sar_indicator, trend_indicators,
+)
 from .strategies import DirectionSignal, strategy_two
 
 
@@ -13,6 +16,8 @@ class MacdResult:
     histogram: float | None
     crossover: str
     zone: str
+    dif_history: tuple[float | None, ...] = ()
+    crossover_history: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,6 +53,8 @@ class Analysis:
     alignment: AlignmentResult
     strategy_two: DirectionSignal
     trend: TrendResult
+    macd_divergences: tuple[str, ...] = ()
+    rsi_divergences: tuple[str, ...] = ()
 
 
 def moving_average(values: list[float], period: int) -> float | None:
@@ -69,23 +76,38 @@ def ema_series(values: list[float], period: int) -> list[float | None]:
 
 
 def macd_indicator(closes: list[float]) -> MacdResult:
-    fast, slow = ema_series(closes, 12), ema_series(closes, 26)
+    fast, slow = ema_series(closes, 5), ema_series(closes, 10)
     macd_values = [f - s if f is not None and s is not None else None for f, s in zip(fast, slow)]
     compact = [value for value in macd_values if value is not None]
-    signal_compact = ema_series(compact, 9)
+    signal_compact = ema_series(compact, 3)
     signals = [None] * (len(macd_values) - len(signal_compact)) + signal_compact
-    macd, signal = macd_values[-1], signals[-1]
+    macd = macd_values[-1] if macd_values else None
+    signal = signals[-1] if signals else None
     histogram = macd - signal if macd is not None and signal is not None else None
-    crossover = "无"
-    if macd is not None and signal is not None and len(macd_values) > 1:
-        previous_macd, previous_signal = macd_values[-2], signals[-2]
-        if previous_macd is not None and previous_signal is not None:
-            if previous_macd <= previous_signal < macd:
-                crossover = "金叉"
-            elif previous_macd >= previous_signal > macd:
-                crossover = "死叉"
+    crossovers = ["无"] * len(closes)
+    # A touch does not count as a cross until DIF moves to the opposite side.
+    last_side = 0
+    for index, (dif, dea) in enumerate(zip(macd_values, signals)):
+        if dif is None or dea is None or dif == dea:
+            continue
+        side = 1 if dif > dea else -1
+        if last_side == -side:
+            crossovers[index] = "金叉" if side > 0 else "死叉"
+        last_side = side
     zone = "0轴上方" if macd is not None and macd >= 0 else "0轴下方" if macd is not None else "未知"
-    return MacdResult(macd, signal, histogram, crossover, zone)
+    crossover = crossovers[-1] if crossovers else "无"
+    return MacdResult(macd, signal, histogram, crossover, zone, tuple(macd_values), tuple(crossovers))
+
+
+def macd_price_divergences(bars: list[DailyBar], macd: MacdResult) -> tuple[str, ...]:
+    """Mark a confirmed divergence after two subsequent matching crossings."""
+    labels = []
+    for divergence in price_divergence_signals(bars, macd.dif_history):
+        target_cross = "金叉" if divergence.label == "底背离" else "死叉"
+        later_crosses = macd.crossover_history[divergence.confirmed_at + 1:]
+        label = divergence.label + "*" if later_crosses.count(target_cross) >= 2 else divergence.label
+        labels.append(label)
+    return tuple(labels)
 
 
 def volume_average(volumes: list[float], period: int, *, exclude_latest: bool = True) -> float | None:
@@ -171,4 +193,6 @@ def analyze(bars: list[DailyBar], range_days: int = 60) -> Analysis:
                     range_days, percentile, position, volume_average(volumes, 120), above_today, above_three,
                     strategy.long_score, strategy.short_score, strategy.long_reasons, strategy.short_reasons,
                     sar, alignment, strategy_two(sar, alignment, trend, latest.close,
-                                                  above_today), trend)
+                                                  above_today), trend,
+                    macd_price_divergences(ordered, macd),
+                    price_divergences(ordered, trend.rsi_history))

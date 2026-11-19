@@ -39,28 +39,37 @@ def _colored_action(value: str) -> str:
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
     subject = f"股票日K收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
-    for result in results:
-        groups[result.stock.market].append(result)
     summary_rows = []
     for result in results:
         name = next((bar.instrument_name for bar in result.bars if bar.instrument_name), "名称暂缺")
-        actions = ["不操作", "不操作"]
+        analysis = None
+        analysis_error = ""
         if result.bars:
             try:
-                summary_analysis = analyze(result.bars, range_days)
-                actions[0] = ("做多" if summary_analysis.long_score else
-                              "做空" if summary_analysis.short_score else "不操作")
-                actions[1] = summary_analysis.strategy_two.action
-            except Exception:
-                pass
-        summary_rows.append((result.stock.code, name, actions))
+                analysis = analyze(result.bars, range_days)
+            except Exception as exc:
+                analysis_error = f"技术分析失败：{type(exc).__name__}"
+        action = "不操作"
+        second_action = "不操作"
+        divergence = "无"
+        if analysis is not None:
+            action = "做多" if analysis.long_score else "做空" if analysis.short_score else "不操作"
+            second_action = analysis.strategy_two.action
+            if analysis.macd_divergences or analysis.rsi_divergences:
+                divergence = "背离"
+        groups[result.stock.market].append((result, name, analysis, analysis_error, action))
+        summary_rows.append((result.stock.code, name, divergence, action, second_action))
     text = [subject, "总结"]
-    text.append("代码 | 名称 | 策略一（MACD） | 策略二（SAR与均线）")
-    text.extend(f"{code} | {name} | {actions[0]} | {actions[1]}" for code, name, actions in summary_rows)
-    html = [f"<h2>{escape(subject)}</h2><h3>总结</h3><table border='1' cellpadding='6' cellspacing='0'><thead><tr><th>代码</th><th>名称</th><th>策略一（MACD）</th><th>策略二（SAR与均线）</th></tr></thead><tbody>"]
+    text.append("代码 | 名称 | 背离 | 策略一（MACD） | 策略二（SAR与均线）")
+    text.extend(" | ".join(row) for row in summary_rows)
+    html = [f"<h2>{escape(subject)}</h2><h3>总结</h3>"
+            "<table border='1' cellpadding='6' cellspacing='0'><thead><tr>"
+            "<th>代码</th><th>名称</th><th>背离</th><th>策略一（MACD）</th>"
+            "<th>策略二（SAR与均线）</th></tr></thead><tbody>"]
     html.extend(
-        f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{_colored_action(actions[0])}</td><td>{_colored_action(actions[1])}</td></tr>"
-        for code, name, actions in summary_rows
+        f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{divergence}</td>"
+        f"<td>{_colored_action(action)}</td><td>{_colored_action(second_action)}</td></tr>"
+        for code, name, divergence, action, second_action in summary_rows
     )
     html.append("</tbody></table><h3>一、A股股票 / ETF 分析</h3>")
     for market in ("CN", "HK"):
@@ -71,8 +80,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
             text.append("无")
             html.append("<p>无配置标的</p>")
             continue
-        for result in groups[market]:
-            name = next((bar.instrument_name for bar in result.bars if bar.instrument_name), "名称暂缺")
+        for result, name, analysis, analysis_error, action in groups[market]:
             display = f"{result.stock.code}（{name}）"
             text.append(f"\n[{display}]\n类型: {result.stock.asset_type}\n数据来源: {result.source or '无'}")
             html.append(f"<section><h4>{escape(display)}</h4><p>类型：{escape(result.stock.asset_type)}；数据来源：{escape(result.source or '无')}</p>")
@@ -83,9 +91,11 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 text.append(f"个股错误: {error}")
                 html.append(f"<p class='error'>个股错误：{escape(error)}</p></section>")
                 continue
+            if analysis is None:
+                text.append(f"个股错误: {analysis_error}")
+                html.append(f"<p class='error'>个股错误：{escape(analysis_error)}</p></section>")
+                continue
             try:
-                analysis = analyze(result.bars, range_days)
-                action = "做多" if analysis.long_score else "做空" if analysis.short_score else "不操作"
                 ma5 = analysis.moving_averages[5]
                 previous_ma5 = sum(bar.close for bar in result.bars[-6:-1]) / 5 if len(result.bars) >= 6 else None
                 macd_signals = [analysis.macd_zone]
@@ -100,6 +110,16 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                             analysis.macd_cross == "死叉" and analysis.latest.close < ma5 and ma5 < previous_ma5)):
                         macd_signals.append("5日线拐头")
                 macd_text = "，".join(macd_signals)
+                macd_details = [f"MACD 与价格：{'、'.join(analysis.macd_divergences)}"] if analysis.macd_divergences else []
+                rsi_details = []
+                rsi = analysis.trend.rsi
+                if rsi is not None:
+                    if rsi >= 70:
+                        rsi_details.append(f"RSI(14) 超买（{number(rsi)}）")
+                    elif rsi <= 30:
+                        rsi_details.append(f"RSI(14) 超卖（{number(rsi)}）")
+                if analysis.rsi_divergences:
+                    rsi_details.append(f"RSI 与价格：{'、'.join(analysis.rsi_divergences)}")
                 position_text = _price_position_text(analysis.range_percentile)
                 strategy_two_summary = f"策略二（SAR与均线）结论: {analysis.strategy_two.action}"
                 strategy_one_html = (f"<p><strong>策略一（MACD）结论：</strong>"
@@ -117,21 +137,25 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 text.extend([
                     f"收盘: {number(analysis.latest.close)}，涨跌: {number(analysis.change_pct)}%",
                     f"MACD: {macd_text}",
+                    *macd_details,
                     f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
                     f"策略一（MACD）结论: {action}",
                     f"SAR: {analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}",
                     f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
+                    *rsi_details,
                     strategy_two_summary,
                 ])
                 html.append("".join([
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>",
                     f"<p>MACD：{escape(macd_text)}</p>",
+                    *(f"<p>{escape(detail)}</p>" for detail in macd_details),
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
                     strategy_one_html,
                     f"<p>SAR：{analysis.sar.direction}，{analysis.sar.reversal if analysis.sar.reversal != '无' else '今日未翻转'}</p>",
                     f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>",
+                    *(f"<p>{escape(detail)}</p>" for detail in rsi_details),
                     strategy_two_html,
                     "</section>",
                 ]))
