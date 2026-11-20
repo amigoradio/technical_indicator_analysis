@@ -21,10 +21,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         logger.info("步骤 1/4：读取并验证 Secret 配置")
         settings = Settings.from_env()
+        logger.info("Analysis frequency: %s", settings.frequency)
         now = datetime.now(ZoneInfo("Asia/Shanghai"))
         target = now.date()
         logger.info("运行时间：%s；直接请求数据源实际交易日", now.isoformat())
-        logger.info("步骤 2/4：抓取最近 120 个有效历史交易日，共 %d 只股票", len(settings.stocks))
+        unit = "周 K" if settings.frequency == "weekly" else "日 K"
+        logger.info("步骤 2/4：抓取最新及最近 120 根历史%s，共 %d 只股票", unit, len(settings.stocks))
         runtime_errors: list[str] = []
         try:
             service = DataService(settings)
@@ -44,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("步骤 3/4：分析并生成报告，成功 %d/%d", sum(bool(r.bars) for r in results), len(results))
         report_errors = tuple(getattr(settings, "config_errors", ())) + tuple(runtime_errors)
         try:
-            subject, text, html = render(results, target, report_errors, settings.range_days)
+            subject, text, html = render(results, target, report_errors, settings.range_days, settings.frequency)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

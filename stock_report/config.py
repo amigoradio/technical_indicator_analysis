@@ -43,6 +43,7 @@ class Settings:
     attempts: int
     range_days: int = 60
     config_errors: tuple[str, ...] = ()
+    frequency: str = "daily"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -83,7 +84,11 @@ class Settings:
                 config_errors.append(str(exc) + f"，已使用默认值 {default}")
                 return default
 
+        frequency = value("REPORT_FREQUENCY", "daily").lower()
+        if frequency not in ("daily", "weekly"):
+            config_errors.append("REPORT_FREQUENCY 仅支持 daily 或 weekly，已使用 daily")
+            frequency = "daily"
         return cls(stocks, sender, password, receivers, value("EMAIL_SENDER_NAME", "可爱炒股小秘"),
                    host, port, security, optional_integer("DATA_REQUEST_TIMEOUT", 60, 5, 300),
                    optional_integer("DATA_RETRY_ATTEMPTS", 2, 1, 3),
-                   optional_integer("PRICE_RANGE_DAYS", 60, 10, 360), tuple(config_errors))
+                   optional_integer("PRICE_RANGE_DAYS", 60, 10, 360), tuple(config_errors), frequency)

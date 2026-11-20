@@ -13,7 +13,7 @@ from stock_report.analysis import analyze
 from stock_report.config import Settings
 from stock_report.data import DataService, FetchResult, Provider, provider_chain, request
 from stock_report.email import send
-from stock_report.models import DailyBar, Stock, validate_bars
+from stock_report.models import HISTORY_BAR_LIMIT, DailyBar, Stock, validate_bars
 from stock_report.providers import akshare, baostock, longbridge
 from stock_report.report import render
 from stock_report.__main__ import main
@@ -146,6 +146,69 @@ class ReportTests(unittest.TestCase):
             request(provider, Stock.parse("600001"), TARGET, TARGET, 10)
         self.assertNotIn("secret-credential", str(caught.exception))
         self.assertEqual(multiprocessing.active_children(), [])
+
+    @patch("stock_report.data.time.sleep")
+    @patch("stock_report.data.request", return_value=[bar()])
+    def test_weekly_settings_reach_data_request(self, fetch, _sleep):
+        os.environ["REPORT_FREQUENCY"] = "weekly"
+        os.environ["LONGBRIDGE_APP_KEY"] = "configured"
+        stock = Stock.parse("600519")
+        result = DataService(Settings.from_env()).fetch(stock, TARGET)
+        self.assertEqual(result.bars, [bar()])
+        self.assertEqual(result.source, "Longbridge")
+        self.assertIsNone(fetch.call_args.args[2])
+        self.assertEqual(fetch.call_args.kwargs["frequency"], "weekly")
+
+    @patch("stock_report.data.time.sleep")
+    @patch("stock_report.data.request")
+    def test_weekly_date_based_provider_keeps_latest_bars(self, fetch, _sleep):
+        os.environ["REPORT_FREQUENCY"] = "weekly"
+        fetch.return_value = [bar(TARGET - timedelta(weeks=i)) for i in range(HISTORY_BAR_LIMIT + 2)]
+        result = DataService(Settings.from_env()).fetch(Stock.parse("600519"), TARGET)
+        self.assertEqual(result.source, "Akshare")
+        self.assertLess(fetch.call_args.args[2], TARGET - timedelta(weeks=HISTORY_BAR_LIMIT))
+        self.assertEqual(fetch.call_args.kwargs["frequency"], "weekly")
+        self.assertEqual(len(result.bars), HISTORY_BAR_LIMIT)
+        self.assertEqual(result.bars[-1].date, TARGET)
+
+    def test_native_weekly_provider_arguments(self):
+        sdk = MagicMock()
+        frame = MagicMock(empty=False)
+        frame.to_dict.return_value = [{"date": str(TARGET), "open": 10, "high": 12,
+                                       "low": 9, "close": 11, "volume": 100}]
+        with patch.dict("sys.modules", {"akshare": sdk}):
+            for code, endpoint in (("600519", sdk.stock_zh_a_hist), ("hk700", sdk.stock_hk_hist),
+                                   ("511090", sdk.fund_etf_hist_em)):
+                with self.subTest(code=code):
+                    endpoint.return_value = frame
+                    akshare.fetch(Stock.parse(code), TARGET, TARGET, frequency="weekly")
+                    self.assertEqual(endpoint.call_args.kwargs["period"], "weekly")
+            sdk.fund_etf_hist_em.side_effect = RuntimeError("weekly endpoint unavailable")
+            with self.assertRaises(RuntimeError):
+                akshare.fetch(Stock.parse("511090"), TARGET, TARGET, frequency="weekly")
+            sdk.fund_etf_hist_sina.assert_not_called()
+
+        sdk = MagicMock()
+        with patch.dict("sys.modules", {"longbridge.openapi": sdk}), patch.object(longbridge, "build_config"):
+            longbridge.fetch(Stock.parse("hk700"), None, TARGET, frequency="weekly")
+        ctx = sdk.QuoteContext.return_value
+        ctx.history_candlesticks_by_offset.assert_called_once_with(
+            symbol="00700.HK", period=sdk.Period.Week, adjust_type=sdk.AdjustType.NoAdjust,
+            forward=False, count=121, time=datetime(2026, 11, 9, 23, 59, 59),
+        )
+        ctx.history_candlesticks_by_date.assert_not_called()
+
+        sdk = MagicMock()
+        sdk.login.return_value.error_code = "0"
+        result = sdk.query_history_k_data_plus.return_value
+        result.error_code = "0"
+        result.next.side_effect = [True, False]
+        result.get_row_data.return_value = [str(TARGET), "10", "12", "9", "11", "100", "1100"]
+        with patch.dict("sys.modules", {"baostock": sdk}):
+            self.assertEqual(baostock.fetch(Stock.parse("600519"), TARGET, TARGET, frequency="weekly"), [bar()])
+        call = sdk.query_history_k_data_plus.call_args
+        self.assertEqual(call.kwargs["frequency"], "w")
+        self.assertNotIn("tradestatus", call.args[1])
 
     def test_akshare_unit_normalization(self):
         sdk = MagicMock()

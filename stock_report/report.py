@@ -65,8 +65,10 @@ def _colored_sar_text(value: str) -> str:
     return f"<span style='color:{color}'>{escaped}</span>" if color else escaped
 
 
-def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60) -> tuple[str, str, str]:
-    subject = f"股票日K收盘报告 | {target}"
+def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
+           frequency: str = "daily") -> tuple[str, str, str]:
+    period_name = "周K" if frequency == "weekly" else "日K"
+    subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
     summary_rows = []
     for result in results:

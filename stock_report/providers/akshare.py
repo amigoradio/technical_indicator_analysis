@@ -24,10 +24,10 @@ def get_name(stock: Stock) -> str:
     return ""
 
 
-def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
+def fetch(stock: Stock, start: date, end: date, *, frequency: str = "daily") -> list[DailyBar]:
     import akshare as ak
 
-    kwargs = dict(period="daily", start_date=start.strftime("%Y%m%d"),
+    kwargs = dict(period=frequency, start_date=start.strftime("%Y%m%d"),
                   end_date=end.strftime("%Y%m%d"), adjust="")
     if stock.market == "HK":
         api = ak.stock_hk_hist
@@ -40,8 +40,11 @@ def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
             frame = ak.fund_etf_hist_em(**kwargs)
             bars = _to_bars(frame, stock)
             # An empty or stale response must also trigger the alternate API.
-            return validate_bars(bars, end)
+            return validate_bars(bars, end, allow_previous=frequency == "weekly")
         except Exception as primary_error:
+            if frequency == "weekly":
+                # Sina ETF history only supplies daily bars.
+                raise
             logger.warning("ETF %s 东方财富接口不可用（%s），尝试备用接口", stock.code, type(primary_error).__name__)
             # Eastmoney Push2 is frequently rate-limited from GitHub-hosted
             # runners. Try Akshare's Sina ETF endpoint before declaring the

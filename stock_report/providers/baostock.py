@@ -19,7 +19,7 @@ def get_name(stock: Stock) -> str:
         bs.logout()
 
 
-def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
+def fetch(stock: Stock, start: date, end: date, *, frequency: str = "daily") -> list[DailyBar]:
     import baostock as bs
 
     if stock.market != "CN" or stock.exchange == "BJ":
@@ -30,14 +30,17 @@ def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
     if login.error_code != "0":
         raise RuntimeError("Baostock 登录失败")
     try:
+        weekly = frequency == "weekly"
+        fields = "date,open,high,low,close,volume,amount"
         result = bs.query_history_k_data_plus(
             symbol,
-            "date,open,high,low,close,volume,amount,tradestatus",
-            start_date=start.isoformat(), end_date=end.isoformat(), frequency="d", adjustflag="3")
+            fields if weekly else fields + ",tradestatus",
+            start_date=start.isoformat(), end_date=end.isoformat(),
+            frequency="w" if weekly else "d", adjustflag="3")
         bars = []
         while result.error_code == "0" and result.next():
             row = result.get_row_data()
-            if row[7] == "1":
+            if weekly or row[7] == "1":
                 bars.append(DailyBar(date.fromisoformat(row[0]),
                                      *(float(v) for v in row[1:7])))
         if result.error_code != "0":

@@ -6,6 +6,10 @@ from math import isfinite
 import re
 
 
+# The latest bar plus the 120 preceding bars used for the volume average.
+HISTORY_BAR_LIMIT = 121
+
+
 @dataclass(frozen=True)
 class Stock:
     code: str

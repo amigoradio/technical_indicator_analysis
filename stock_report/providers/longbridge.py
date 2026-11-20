@@ -1,14 +1,14 @@
 """Longbridge auth and endpoints follow daily_stock_analysis's conventions."""
 
 import base64
-from datetime import date, datetime
+from datetime import date, datetime, time
 import json
 import logging
 import os
 from pathlib import Path
 
 from ..config import value
-from ..models import DailyBar, Stock
+from ..models import HISTORY_BAR_LIMIT, DailyBar, Stock
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +77,19 @@ def get_name(stock: Stock) -> str:
     return ""
 
 
-def fetch(stock: Stock, start: date, end: date) -> list[DailyBar]:
+def fetch(stock: Stock, start: date | None, end: date, *, frequency: str = "daily") -> list[DailyBar]:
     from longbridge.openapi import AdjustType, Period, QuoteContext
     from zoneinfo import ZoneInfo
 
     ctx = QuoteContext(build_config())
-    candles = ctx.history_candlesticks_by_date(
-        stock.longbridge_symbol, Period.Day, AdjustType.NoAdjust, start, end)
+    if frequency == "weekly":
+        candles = ctx.history_candlesticks_by_offset(
+            symbol=stock.longbridge_symbol, period=Period.Week, adjust_type=AdjustType.NoAdjust,
+            forward=False, count=HISTORY_BAR_LIMIT, time=datetime.combine(end, time(23, 59, 59)),
+        )
+    else:
+        candles = ctx.history_candlesticks_by_date(
+            stock.longbridge_symbol, Period.Day, AdjustType.NoAdjust, start, end)
     bars = []
     for candle in candles or []:
         timestamp = candle.timestamp

@@ -10,7 +10,7 @@ import random
 import time
 
 from .config import Settings
-from .models import DailyBar, Stock, validate_bars
+from .models import HISTORY_BAR_LIMIT, DailyBar, Stock, validate_bars
 from .providers.longbridge import configured
 
 logger = logging.getLogger(__name__)
@@ -55,11 +55,12 @@ def provider_chain(stock: Stock) -> list[Provider]:
             and (p.name != "Baostock" or stock.exchange != "BJ")]
 
 
-def _worker(connection, provider: Provider, stock: Stock, start: date, end: date) -> None:
+def _worker(connection, provider: Provider, stock: Stock, start: date | None, end: date, frequency: str) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", force=True)
     try:
         module = import_module(provider.module)
-        bars = module.fetch(stock, start, end)
+        bars = (module.fetch(stock, start, end, frequency=frequency)
+                if frequency == "weekly" else module.fetch(stock, start, end))
         connection.send((True, bars))
         # Bars are delivered before optional metadata: a slow name endpoint
         # must never invalidate a successful price request.
@@ -77,12 +78,12 @@ def _worker(connection, provider: Provider, stock: Stock, start: date, end: date
         connection.close()
 
 
-def request(provider: Provider, stock: Stock, start: date, end: date,
-            timeout: float) -> list[DailyBar]:
+def request(provider: Provider, stock: Stock, start: date | None, end: date,
+            timeout: float, *, frequency: str = "daily") -> list[DailyBar]:
     """Use killable processes: thread timeouts leave blocked SDK calls running."""
     context = mp.get_context("spawn")
     reader, writer = context.Pipe(duplex=False)
-    process = context.Process(target=_worker, args=(writer, provider, stock, start, end))
+    process = context.Process(target=_worker, args=(writer, provider, stock, start, end, frequency))
     try:
         process.start()
         writer.close()
@@ -135,9 +136,7 @@ class DataService:
         errors = []
         try:
             providers = provider_chain(stock)
-            # Providers return actual sessions; retain the latest 120 prior
-            # sessions plus the target instead of using an exchange calendar.
-            start = target - timedelta(days=200)
+            weekly = self.settings.frequency == "weekly"
         except Exception as exc:
             logger.exception("%s 数据源路由失败", stock.code)
             return FetchResult(stock, [], error=f"数据源路由失败：{type(exc).__name__}")
@@ -149,18 +148,28 @@ class DataService:
                 errors.append(f"Longbridge: {message}")
                 continue
             provider_errors = []
+            if weekly and provider.name == "Longbridge":
+                start = None
+                request_scope = f"截至 {target} 的最近 {HISTORY_BAR_LIMIT} 根周 K"
+            else:
+                # Date-based weekly APIs need extra weeks to cover holiday gaps.
+                lookback = timedelta(weeks=HISTORY_BAR_LIMIT + 8) if weekly else timedelta(days=200)
+                start = target - lookback
+                request_scope = f"{start} 至 {target}"
             for attempt in range(1, self.settings.attempts + 1):
                 delay = random.uniform(2, 5) if attempt == 1 else min(2 ** (attempt + 2), 30) + random.uniform(0, 2)
                 logger.info("%s / %s 请求间隔 %.1f 秒", stock.code, provider.name, delay)
                 time.sleep(delay)
-                logger.info("%s / %s 抓取 %s 至 %s（第 %d/%d 次）", stock.code,
-                            provider.name, start, target, attempt, self.settings.attempts)
+                logger.info("%s / %s 抓取 %s（第 %d/%d 次）", stock.code,
+                            provider.name, request_scope, attempt, self.settings.attempts)
                 began = time.monotonic()
                 try:
-                    raw_bars = request(provider, stock, start, target, self.settings.request_timeout)
-                    bars = validate_bars(raw_bars, target, allow_previous=True)[-121:]
-                    logger.info("%s / %s 成功，%d 根日 K，耗时 %.1f 秒", stock.code,
-                                provider.name, len(bars), time.monotonic() - began)
+                    raw_bars = request(provider, stock, start, target, self.settings.request_timeout,
+                                       frequency=self.settings.frequency)
+                    bars = validate_bars(raw_bars, target, allow_previous=True)[-HISTORY_BAR_LIMIT:]
+                    logger.info("%s / %s 成功，%d 根%s K，耗时 %.1f 秒", stock.code,
+                                provider.name, len(bars), "周" if weekly else "日",
+                                time.monotonic() - began)
                     return FetchResult(stock, bars, provider.name)
                 except Exception as exc:
                     detail = f"{provider.name}: {exc}"
