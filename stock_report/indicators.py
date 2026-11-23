@@ -37,6 +37,19 @@ class PriceDivergence:
     confirmed_at: int
 
 
+def nine_turn_streak(closes: list[float]) -> int:
+    """Return the signed streak ending at the latest close, in chronological order."""
+    streak = 0
+    for close, earlier in zip(closes[4:], closes):
+        if close > earlier:
+            streak = max(streak, 0) + 1
+        elif close < earlier:
+            streak = min(streak, 0) - 1
+        else:
+            streak = 0
+    return streak
+
+
 def price_divergence_signals(
     bars: list[DailyBar], indicator: tuple[float | None, ...],
 ) -> tuple[PriceDivergence, ...]:

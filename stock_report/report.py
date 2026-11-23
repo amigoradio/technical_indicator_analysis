@@ -77,7 +77,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         analysis_error = ""
         if result.bars:
             try:
-                analysis = analyze(result.bars, range_days)
+                analysis = analyze(result.bars, range_days, frequency=frequency)
             except Exception as exc:
                 analysis_error = f"技术分析失败：{type(exc).__name__}"
         action = "不操作"
@@ -177,6 +177,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 text.extend([
                     f"收盘: {number(analysis.latest.close)}，涨跌: {number(analysis.change_pct)}%",
                     f"MACD: {macd_text}",
+                    *([analysis.nine_turn] if analysis.nine_turn else []),
                     f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
                     f"策略一（MACD）结论: {action}",
@@ -188,6 +189,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 html.append("".join([
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>",
                     f"<p>MACD：{escape(macd_text)}</p>",
+                    f"<p>{escape(analysis.nine_turn)}</p>" if analysis.nine_turn else "",
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
                     strategy_one_html,

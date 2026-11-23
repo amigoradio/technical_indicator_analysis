@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from .models import DailyBar
 from .indicators import (
-    AlignmentResult, SarResult, TrendResult, moving_average_alignment,
+    AlignmentResult, SarResult, TrendResult, moving_average_alignment, nine_turn_streak,
     price_divergence_signals, price_divergences, sar_indicator, trend_indicators,
 )
 from .strategies import DirectionSignal, strategy_two
@@ -55,6 +55,7 @@ class Analysis:
     trend: TrendResult
     macd_divergences: tuple[str, ...] = ()
     rsi_divergences: tuple[str, ...] = ()
+    nine_turn: str | None = None
 
 
 def moving_average(values: list[float], period: int) -> float | None:
@@ -167,7 +168,7 @@ def strategy_one(bars: list[DailyBar], averages: dict[int, float | None], macd: 
                           tuple(long_reasons), tuple(short_reasons))
 
 
-def analyze(bars: list[DailyBar], range_days: int = 60) -> Analysis:
+def analyze(bars: list[DailyBar], range_days: int = 60, *, frequency: str = "daily") -> Analysis:
     if not bars:
         raise ValueError("分析需要至少一根日 K")
     ordered = sorted(bars, key=lambda bar: bar.date)
@@ -187,6 +188,13 @@ def analyze(bars: list[DailyBar], range_days: int = 60) -> Analysis:
     sar = sar_indicator(ordered)
     alignment = moving_average_alignment(ordered)
     trend = trend_indicators(ordered)
+    nine_turn = None
+    if frequency == "daily":
+        streak = nine_turn_streak(closes)
+        if streak >= 9:
+            nine_turn = "达成上涨九转"
+        elif streak <= -9:
+            nine_turn = "达成下跌九转"
     return Analysis(latest, (latest.close / previous - 1) * 100 if previous else None, averages,
                     macd.macd, macd.signal, macd.histogram,
                     f"{macd.zone}{macd.crossover}" if macd.crossover != "无" else macd.zone, macd.crossover, macd.zone,
@@ -195,4 +203,4 @@ def analyze(bars: list[DailyBar], range_days: int = 60) -> Analysis:
                     sar, alignment, strategy_two(sar, alignment, trend, latest.close,
                                                   above_today), trend,
                     macd_price_divergences(ordered, macd),
-                    price_divergences(ordered, trend.rsi_history))
+                    price_divergences(ordered, trend.rsi_history), nine_turn=nine_turn)
