@@ -78,6 +78,8 @@ class CsvStore:
 
     def _write(self, frame: pd.DataFrame) -> None:
         # UTF-8 BOM keeps Chinese headers readable in Excel and Windows tools.
+        # Final write-time guard protects callers that bypass sync().
+        frame = self._normalize(frame, strict=True)
         content = frame.to_csv(index=False, date_format="%Y-%m-%d",
                                float_format=f"%.{self.float_digits}f",
                                lineterminator="\n").encode("utf-8-sig")
