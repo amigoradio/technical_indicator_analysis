@@ -1,0 +1,83 @@
+name: Daily Margin Balance
+
+on:
+  schedule:
+    - cron: '0 9 * * 1-5' # 北京时间 17:00
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      module:
+        type: string
+        required: true
+      csv_path:
+        type: string
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: csv-update-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CSV_MODULE: ${{ inputs.module || 'stock_report.margin' }}
+      CSV_PATH: ${{ inputs.csv_path || 'csv_data/margin.csv' }}
+      PYTHONUNBUFFERED: '1'
+      TZ: Asia/Shanghai
+    steps:
+      - name: Checkout triggering branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Update CSV
+        id: update
+        shell: bash
+        run: |
+          runner=(python -m "$CSV_MODULE" update)
+          attempts=1
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            runner+=(--scheduled)
+            attempts=5
+          fi
+          for ((attempt=1; attempt<=attempts; attempt++)); do
+            if "${runner[@]}"; then
+              exit 0
+            else
+              status=$?
+            fi
+            if [[ "$status" != 2 || "$attempt" == "$attempts" ]]; then
+              exit "$status"
+            fi
+            sleep 900
+          done
+      - name: Commit and push CSV
+        if: ${{ !cancelled() && (steps.update.outcome == 'success' || steps.update.outcome == 'failure') }}
+        shell: bash
+        run: |
+          if [[ ! -f "$CSV_PATH" ]]; then
+            exit 0
+          fi
+          git add -- "$CSV_PATH"
+          if git diff --cached --quiet -- "$CSV_PATH"; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "Update $CSV_PATH" --only -- "$CSV_PATH"
+          git fetch origin "$GITHUB_REF"
+          git rebase FETCH_HEAD
+          git push origin "HEAD:$GITHUB_REF"

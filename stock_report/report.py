@@ -1,13 +1,58 @@
 """Render per-instrument technical analysis."""
 from datetime import date
+import base64
+from io import BytesIO
 from html import escape
 
 from .analysis import analyze
 from .data import FetchResult
+from .margin import MarginInfo
 
 
 def number(value: float | None) -> str:
     return "—" if value is None else f"{value:,.2f}"
+
+
+def _margin_number(value: object) -> str:
+    if value is None:
+        return "—"
+    try:
+        if value != value:
+            return "—"
+        return f"{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return escape(str(value))
+
+
+def _margin_chart(rows: tuple[tuple[date, float, float], ...]) -> str | None:
+    if not rows:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        import numpy as np
+
+        labels = [day.strftime("%m-%d") for day, _, _ in rows]
+        balances = [float(balance) for _, balance, _ in rows]
+        changes = [float(change) if change == change else 0.0 for _, _, change in rows]
+        positions = np.arange(len(rows))
+        figure, axis = plt.subplots(figsize=(7.2, 3.6), dpi=150)
+        width = 0.36
+        axis.bar(positions - width / 2, balances, width, label="融资余额", color="#f2c94c")
+        axis.bar(positions + width / 2, changes, width, label="融资净增量", color="#9bd7f5")
+        axis.set_xticks(positions, labels)
+        axis.set_ylabel("亿元")
+        axis.set_title("最近一周融资余额与融资净增量")
+        axis.grid(axis="y", alpha=0.25)
+        axis.legend()
+        figure.tight_layout()
+        output = BytesIO()
+        figure.savefig(output, format="png", facecolor="white")
+        plt.close(figure)
+        return base64.b64encode(output.getvalue()).decode("ascii")
+    except Exception:
+        return None
 
 
 def _volume_text(value: bool | None) -> str:
@@ -66,7 +111,7 @@ def _colored_sar_text(value: str) -> str:
 
 
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
-           frequency: str = "daily") -> tuple[str, str, str]:
+           frequency: str = "daily", margin: MarginInfo | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -94,13 +139,48 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 divergence = "背离"
         groups[result.stock.market].append((result, name, analysis, analysis_error, action))
         summary_rows.append((result.stock.code, name, change_text, divergence, action, second_action))
-    text = [subject, "总结"]
+    text = [subject]
+    html = [f"<h2>{escape(subject)}</h2>"]
+    if frequency == "daily" and margin is not None:
+        if margin.latest_date is None:
+            text.extend(["基本面信息", "融资信息：无法获取数据"])
+            html.append("<h3>基本面信息</h3><p>融资信息：无法获取数据</p>")
+        else:
+            status = f"；状态：{margin.status}" if margin.status else ""
+            chart = _margin_chart(margin.recent)
+            text.extend([
+                "基本面信息",
+                f"融资信息：交易日期 {margin.latest_date}；融资余额 { _margin_number(margin.balance) } 亿元；"
+                f"融资净增量 { _margin_number(margin.change) } 亿元；"
+                f"融资余额3年百分比 { _margin_number(margin.percentile_3y) }%；"
+                f"融资余额5年百分比 { _margin_number(margin.percentile_5y) }%{status}",
+            ])
+            text.append("最近一周融资数据（日期 | 融资余额(亿) | 融资净增量）")
+            text.extend(
+                f"{day} | {_margin_number(balance)} | {_margin_number(change)}"
+                for day, balance, change in margin.recent
+            )
+            html.append(
+                "<h3>基本面信息</h3>"
+                f"<p>融资信息：交易日期 {escape(str(margin.latest_date))}；"
+                f"融资余额 {_margin_number(margin.balance)} 亿元；"
+                f"融资净增量 {_margin_number(margin.change)} 亿元；"
+                f"融资余额3年百分比 {_margin_number(margin.percentile_3y)}%；"
+                f"融资余额5年百分比 {_margin_number(margin.percentile_5y)}%"
+                f"{f'；状态：{escape(margin.status)}' if margin.status else ''}</p>"
+            )
+            if chart:
+                html.append(
+                    "<p><img alt='最近一周融资数据柱状图' "
+                    f"style='max-width:100%;height:auto' src='data:image/png;base64,{chart}'></p>"
+                )
+    text.append("总结")
     text.append("代码 | 名称 | 涨跌情况 | 背离情况 | 策略一（MACD） | 策略二（SAR与均线）")
     text.extend(" | ".join(row) for row in summary_rows)
-    html = [f"<h2>{escape(subject)}</h2><h3>总结</h3>"
+    html.append("<h3>总结</h3>"
             "<table border='1' cellpadding='6' cellspacing='0'><thead><tr>"
             "<th>代码</th><th>名称</th><th>涨跌情况</th><th>背离情况</th><th>策略一（MACD）</th>"
-            "<th>策略二（SAR与均线）</th></tr></thead><tbody>"]
+            "<th>策略二（SAR与均线）</th></tr></thead><tbody>")
     html.extend(
         f"<tr><td>{escape(code)}</td><td>{escape(name)}</td><td>{change_text}</td><td>{divergence}</td>"
         f"<td>{_colored_action(action)}</td><td>{_colored_action(second_action)}</td></tr>"

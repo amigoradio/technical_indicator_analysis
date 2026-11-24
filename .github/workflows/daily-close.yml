@@ -61,8 +61,12 @@ jobs:
           LONGBRIDGE_OAUTH_TOKEN_CACHE_B64: ${{ secrets.LONGBRIDGE_OAUTH_TOKEN_CACHE_B64 }}
           LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS: ${{ secrets.LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS }}
         run: |
+          args=()
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            args+=(--scheduled)
+          fi
           if [ "$FORCE_RUN" = "true" ]; then
-            python -m stock_report --force-run
+            python -m stock_report "${args[@]}" --force-run
           else
-            python -m stock_report
+            python -m stock_report "${args[@]}"
           fi

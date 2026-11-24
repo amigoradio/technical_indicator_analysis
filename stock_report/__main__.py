@@ -6,8 +6,10 @@ import sys
 from zoneinfo import ZoneInfo
 
 from .config import Settings
+from .calendar import resolve_target
 from .data import DataService, FetchResult
 from .email import send
+from .margin import margin_info
 from .report import render
 
 logger = logging.getLogger(__name__)
@@ -16,15 +18,20 @@ logger = logging.getLogger(__name__)
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="股票日K收盘邮件任务")
     parser.add_argument("--force-run", action="store_true")
+    parser.add_argument("--scheduled", action="store_true",
+                        help="由定时 Actions 触发，非交易日直接跳过")
     args = parser.parse_args(argv if argv is not None else [])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stdout, force=True)
     try:
+        now = datetime.now(ZoneInfo("Asia/Shanghai"))
+        target = resolve_target(now, scheduled=args.scheduled)
+        if target is None:
+            logger.info("%s 不是交易日，或手动运行尚未收盘，跳过定时任务", now.date())
+            return 0
         logger.info("步骤 1/4：读取并验证 Secret 配置")
         settings = Settings.from_env()
         logger.info("Analysis frequency: %s", settings.frequency)
-        now = datetime.now(ZoneInfo("Asia/Shanghai"))
-        target = now.date()
-        logger.info("运行时间：%s；直接请求数据源实际交易日", now.isoformat())
+        logger.info("运行时间：%s；目标交易日：%s", now.isoformat(), target)
         unit = "周 K" if settings.frequency == "weekly" else "日 K"
         logger.info("步骤 2/4：抓取最新及最近 120 根历史%s，共 %d 只股票", unit, len(settings.stocks))
         runtime_errors: list[str] = []
@@ -46,7 +53,9 @@ def main(argv: list[str] | None = None) -> int:
         logger.info("步骤 3/4：分析并生成报告，成功 %d/%d", sum(bool(r.bars) for r in results), len(results))
         report_errors = tuple(getattr(settings, "config_errors", ())) + tuple(runtime_errors)
         try:
-            subject, text, html = render(results, target, report_errors, settings.range_days, settings.frequency)
+            financing = margin_info(now.date()) if settings.frequency == "daily" else None
+            subject, text, html = render(results, target, report_errors, settings.range_days,
+                                         settings.frequency, financing)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

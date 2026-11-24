@@ -8,16 +8,35 @@
 
 ## 每日收盘邮件
 
-已实现 Python + GitHub Actions 定时任务：周一至周五北京时间 **18:00** 获取 A 股、港股当日日 K，发送包含开高低收、涨跌幅、成交量、成交额及 MA5/10/20 的邮件。数据源、分析、报告与邮件发送独立分层。
+已实现 Python + GitHub Actions 定时任务：周一至周五北京时间 **18:00** 获取最近收盘交易日的 A 股、港股日 K，发送包含开高低收、涨跌幅、成交量、成交额及 MA5/10/20 的邮件。数据源、分析、报告与邮件发送独立分层。
+
+日线邮件在总结上方显示 `margin.csv` 中最新融资余额、融资净增量、百分位和交易日期，并用柱状图展示最近 5 个交易日的融资余额与融资净增量。黄色表示融资余额，淡蓝色表示融资净增量。融资数据不存在时显示“无法获取数据”，距当前超过 10 天时显示“没有最新数据”，历史交易日缺失时显示“数据不完整”。
 
 1. 将本项目推送到 GitHub 仓库的默认分支，并启用 Actions。
 2. 在 `Settings → Secrets and variables → Actions → New repository secret` 配置 `STOCK_LIST`、`EMAIL_SENDER`、`EMAIL_PASSWORD`。例如 `STOCK_LIST=600519;000001;hk00700`。
 3. 按需配置 `EMAIL_RECEIVERS`（逗号分隔，留空发给发件人）及 `EMAIL_SENDER_NAME`（默认“可爱炒股小秘”）。
-4. 进入 Actions → Daily closing report → Run workflow 手动验证；如需在周末或 18:00 前测试，勾选 `force_run`，报告会标记为“手动测试”。之后自动定时运行。
+4. 进入 Actions → Daily closing report → Run workflow 手动验证；`force_run` 只为报告添加“手动测试”标记，目标交易日仍按统一交易日历和北京时间 16:00 收盘时间决定。之后自动定时运行。
 
 未配置长桥时，A 股使用 Akshare → Baostock，港股使用 Akshare。配置 Longbridge 后优先使用长桥。任务采用错误收集模式：失败股票、无效股票条目、数据源、分析和报告错误都会写入状态邮件并继续处理，尽量保证邮件送达；只有邮件配置本身错误时无法发送。
 
 完整配置、Longbridge OAuth、日志、休市处理、测试和扩展方法见 [运行与开发说明](docs/daily-close.md)。生产定时任务不会先执行离线单元测试，以避免测试失败阻断状态邮件发送。
+
+## 沪深融资余额
+
+GitHub Actions 周一至周五北京时间 17:00 触发，按 A 股交易日历跳过周末和节假日。首次补齐最近五年，之后使用最近收盘交易日。交易所延迟发布时，定时任务每 15 分钟重试一次，最多重试 4 次。CSV 变更提交到触发任务的分支，GitHub 的定时触发使用仓库默认分支。
+
+所有定时任务共用 `stock_report.calendar.resolve_target()`。定时触发时，只有当天是交易日才运行。手动触发时，北京时间超过 16:00 取当天交易日数据，16:00 及之前取上一个交易日数据。交易日历优先使用 `ak.tool_trade_date_hist_sina()`，失败时使用 BaoStock `query_trade_dates`，其中的 `is_trading_day` 字段包含节假日信息。
+
+在项目根目录运行以下命令，可从交易所重新校验并补齐最近五年。深交所按交易日逐次请求，每次间隔至少 1 秒，全量校验通常需要二十多分钟。完成后可检查 Git 差异并手动提交。
+
+```sh
+python -m pip install -r requirements.txt
+python -m stock_report.margin repair
+```
+
+融资余额和融资净增量均以亿元计。净增量按上一交易日计算，上一交易日缺值时留空。3 年和 5 年百分比是各交易日余额在对应回看窗口内的历史百分位（小于等于当日余额的样本占比，范围 0–100），以 CSV 保留范围内可用的样本计算。
+
+其他业务可调用 `stock_report.margin.read_margin()` 离线读取 [margin.csv](csv_data/margin.csv)。新增数据集可以复用 `stock_report.csv_store.CsvStore` 的读写、按日期校验与去重逻辑，也可调用 `.github/workflows/daily-base-info.yml`，传入其 Python 更新模块和 CSV 相对路径。
 
 ## 技术指标规划
 
