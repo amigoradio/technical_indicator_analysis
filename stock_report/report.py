@@ -31,19 +31,39 @@ def _margin_chart(rows: tuple[tuple[date, float, float], ...]) -> str | None:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+        from matplotlib import font_manager
         import numpy as np
 
         labels = [day.strftime("%m-%d") for day, _, _ in rows]
         balances = [float(balance) for _, balance, _ in rows]
         changes = [float(change) if change == change else 0.0 for _, _, change in rows]
         positions = np.arange(len(rows))
+        chart_font = next(
+            (font for font in font_manager.fontManager.ttflist
+             if any(token in font.name.lower() for token in
+                    ("noto sans cjk", "source han", "microsoft yahei", "simhei",
+                     "wenquanyi", "droid sans fallback"))),
+            None,
+        )
+        if chart_font:
+            plt.rcParams["font.family"] = chart_font.name
+            balance_label = "融资余额"
+            change_label = "融资净增量"
+            axis_label = "亿元"
+            title = "最近十个交易日融资余额与融资净增量"
+        else:
+            # A runner without a CJK font would render Chinese as empty boxes.
+            balance_label = "Margin balance"
+            change_label = "Net margin change"
+            axis_label = "CNY 100m"
+            title = "Margin balance and net change (10 sessions)"
         figure, axis = plt.subplots(figsize=(7.2, 3.6), dpi=150)
         width = 0.36
-        axis.bar(positions - width / 2, balances, width, label="融资余额", color="#f2c94c")
-        axis.bar(positions + width / 2, changes, width, label="融资净增量", color="#9bd7f5")
+        axis.bar(positions - width / 2, balances, width, label=balance_label, color="#f2c94c")
+        axis.bar(positions + width / 2, changes, width, label=change_label, color="#9bd7f5")
         axis.set_xticks(positions, labels)
-        axis.set_ylabel("亿元")
-        axis.set_title("最近一周融资余额与融资净增量")
+        axis.set_ylabel(axis_label)
+        axis.set_title(title)
         axis.grid(axis="y", alpha=0.25)
         axis.legend()
         figure.tight_layout()
@@ -155,7 +175,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 f"融资余额3年百分比 { _margin_number(margin.percentile_3y) }%；"
                 f"融资余额5年百分比 { _margin_number(margin.percentile_5y) }%{status}",
             ])
-            text.append("最近一周融资数据（日期 | 融资余额(亿) | 融资净增量）")
+            text.append("最近十个交易日融资数据（日期 | 融资余额(亿) | 融资净增量）")
             text.extend(
                 f"{day} | {_margin_number(balance)} | {_margin_number(change)}"
                 for day, balance, change in margin.recent
@@ -171,7 +191,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
             )
             if chart:
                 html.append(
-                    "<p><img alt='最近一周融资数据柱状图' "
+                    "<p><img alt='最近十个交易日融资数据柱状图' "
                     f"style='max-width:100%;height:auto' src='data:image/png;base64,{chart}'></p>"
                 )
     text.append("总结")
@@ -198,7 +218,11 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         for result, name, analysis, analysis_error, action in groups[market]:
             display = f"{result.stock.code}（{name}）"
             text.append(f"\n[{display}]\n类型: {result.stock.asset_type}\n数据来源: {result.source or '无'}")
-            html.append(f"<section><h4>{escape(display)}</h4><p>类型：{escape(result.stock.asset_type)}；数据来源：{escape(result.source or '无')}</p>")
+            html.append(
+                f"<section><h4 style='font-size:18px;margin-bottom:4px'>{escape(display)} "
+                f"<span style='font-size:14px;font-weight:normal'>类型：{escape(result.stock.asset_type)}；"
+                f"数据来源：{escape(result.source or '无')}</span></h4>"
+            )
             if not result.bars:
                 error = result.error or "未能获得数据"
                 if "未能获得数据" not in error:
@@ -269,7 +293,8 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 html.append("".join([
                     f"<p>收盘：{number(analysis.latest.close)}；涨跌：{number(analysis.change_pct)}%</p>",
                     f"<p>MACD：{escape(macd_text)}</p>",
-                    f"<p>{escape(analysis.nine_turn)}</p>" if analysis.nine_turn else "",
+                    (f"<p><span style='color:#1565c0'>{escape(analysis.nine_turn)}</span></p>"
+                     if analysis.nine_turn else ""),
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
                     strategy_one_html,

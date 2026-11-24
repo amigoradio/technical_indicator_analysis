@@ -62,7 +62,7 @@ def margin_info(today: date, path: Path = MARGIN_CSV) -> MarginInfo:
         # A calendar outage must not hide an otherwise usable stored row.
         pass
     recent_rows = []
-    for _, row in frame.tail(5).iterrows():
+    for _, row in frame.tail(10).iterrows():
         recent_rows.append((row[DATE].date(), row.get(BALANCE), row.get(CHANGE)))
     return MarginInfo(
         latest_date=latest_date,
