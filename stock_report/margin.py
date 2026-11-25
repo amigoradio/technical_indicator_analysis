@@ -81,7 +81,7 @@ class PublicationPending(RuntimeError):
 
 def read_margin(path: Path = MARGIN_CSV) -> pd.DataFrame:
     """Read the stored financing history without accessing an exchange."""
-    return CsvStore(path, DATE, COLUMNS, float_digits=2).read()
+    return CsvStore(path, DATE, COLUMNS, float_digits=8).read()
 
 
 def years_before(day: date, years: int) -> date:
@@ -144,12 +144,12 @@ class MarginSource:
 
 def _derive(frame: pd.DataFrame, sessions: list[date]) -> pd.DataFrame:
     frame = frame.copy()
-    frame[BALANCE] = frame[BALANCE].map(_positive_balance).round(2)
+    frame[BALANCE] = frame[BALANCE].map(_positive_balance)
     dates = pd.DatetimeIndex(frame[DATE])
     calendar = pd.DatetimeIndex(sessions)
     balances = pd.Series(frame[BALANCE].to_numpy(), index=dates)
     frame[CHANGE] = (balances.reindex(calendar).diff().reindex(dates)
-                     .fillna(0).round(2).to_numpy())
+                     .fillna(0).to_numpy())
     values = balances.to_numpy()
     for years, column in PERCENTILES.items():
         starts = dates.searchsorted(dates - pd.DateOffset(years=years))
@@ -157,7 +157,7 @@ def _derive(frame: pd.DataFrame, sessions: list[date]) -> pd.DataFrame:
         for position, start in enumerate(starts):
             window = values[start:position + 1]
             ranks.append(100 * (window <= values[position]).sum() / len(window))
-        frame[column] = pd.Series(ranks, index=frame.index).round(2)
+        frame[column] = pd.Series(ranks, index=frame.index)
     return frame
 
 
@@ -169,7 +169,7 @@ def sync_margin(
     repair: bool = False,
     scheduled: bool = False,
 ) -> None:
-    """Fetch the target session, or reconcile the five-year range on bootstrap/repair."""
+    """Update the latest three sessions, or reconcile five years for local repair."""
     if now.tzinfo is None:
         raise ValueError("运行时间必须带时区")
     now = now.astimezone(SHANGHAI)
@@ -184,25 +184,32 @@ def sync_margin(
     if not expected:
         raise ValueError("交易日历中找不到目标日期")
     target = expected[-1]
-    store = CsvStore(path, DATE, COLUMNS, float_digits=2)
+    store = CsvStore(path, DATE, COLUMNS, float_digits=8)
     existing = store.read(repair=repair)
-    bootstrap = existing.empty or existing[DATE].iloc[0].date() > expected[0]
-    full_history = repair or bootstrap
-    requested = expected if full_history else [target]
-    # Repair checks the whole range through today, even if it is still intraday.
-    sse = source.shanghai(start if full_history else target, target)
-    missing = set(requested).difference(sse)
-    missing_history = missing.difference({today})
-    if missing_history:
-        raise ValueError(f"上交所缺少历史交易日：{sorted(missing_history)}")
-    pending = PublicationPending(f"{target} 上交所融资余额尚未发布") if missing else None
+    if not repair and existing.empty:
+        raise ValueError("margin.csv 没有历史数据，请先在本地运行 python -m stock_report.margin repair")
+    requested = expected if repair else expected[-3:]
+    sse = source.shanghai(start if repair else requested[0], target)
+    pending = None
+    if repair:
+        missing = set(requested).difference(sse)
+        missing_history = missing.difference({today})
+        if missing_history:
+            raise ValueError(f"上交所缺少历史交易日：{sorted(missing_history)}")
+        if missing:
+            pending = PublicationPending(f"{target} 上交所融资余额尚未发布")
     rows = []
     for day in requested:
         if day not in sse:
+            if not repair:
+                logger.info("%s 上交所融资余额尚未发布，跳过该交易日", day)
             continue
         try:
             szse = source.shenzhen(day)
         except PublicationPending as exc:
+            if not repair:
+                logger.info("%s，跳过该交易日", exc)
+                continue
             if day != target:
                 raise
             pending = exc
@@ -212,14 +219,16 @@ def sync_margin(
             logger.info("已核对 %d/%d 个交易日", len(rows), len(requested))
 
     if rows:
-        if pending and full_history and target in existing[DATE].dt.date.values:
+        if pending and target in existing[DATE].dt.date.values:
             raise pending
-        confirmed = requested[:-1] if pending else requested
-        result = store.sync(pd.DataFrame(rows), start=start, end=confirmed[-1],
+        confirmed = [row[DATE] for row in rows]
+        result = store.sync(pd.DataFrame(rows), start=start, end=target,
                             expected_dates=confirmed, derive=lambda frame: _derive(frame, sessions),
-                            replace=full_history, existing=existing)
+                            replace=repair, existing=existing)
         logger.info("%s 已核对 %d 个交易日，保留 %d 行，最新日期 %s",
                     path, len(rows), len(result), result[DATE].iloc[-1].date())
+    elif not repair:
+        logger.info("最近 %d 个交易日均无完整沪深融资数据，保留现有 CSV", len(requested))
     if pending:
         raise pending
 

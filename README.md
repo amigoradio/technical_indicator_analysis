@@ -23,7 +23,7 @@
 
 ## 沪深融资余额
 
-GitHub Actions 周一至周五北京时间 17:00 触发，按 A 股交易日历跳过周末和节假日。首次补齐最近五年，之后使用最近收盘交易日。交易所延迟发布时，定时任务每 15 分钟重试一次，最多重试 4 次。CSV 变更提交到触发任务的分支，GitHub 的定时触发使用仓库默认分支。
+GitHub Actions 周一至周五北京时间 17:00 触发，按 A 股交易日历跳过周末和节假日。每次查询截至目标日期的最近 3 个交易日，将沪深两市数据齐全的日期写入 CSV，对尚未发布的日期直接跳过。历史数据通过本地脚本补录，CSV 保留最近五年。CSV 变更提交到触发任务的分支，GitHub 的定时触发使用仓库默认分支。
 
 所有定时任务共用 `stock_report.calendar.resolve_target()`。定时触发时，只有当天是交易日才运行。手动触发时，北京时间超过 16:00 取当天交易日数据，16:00 及之前取上一个交易日数据。交易日历优先使用 `ak.tool_trade_date_hist_sina()`，失败时使用 BaoStock `query_trade_dates`，其中的 `is_trading_day` 字段包含节假日信息。
 
@@ -37,6 +37,8 @@ python -m stock_report.margin repair
 融资余额和融资净增量均以亿元计。净增量按上一交易日计算，上一交易日缺值时留空。3 年和 5 年百分比是各交易日余额在对应回看窗口内的历史百分位（小于等于当日余额的样本占比，范围 0–100），以 CSV 保留范围内可用的样本计算。
 
 其他业务可调用 `stock_report.margin.read_margin()` 离线读取 [margin.csv](csv_data/margin.csv)。新增数据集可以复用 `stock_report.csv_store.CsvStore` 的读写、按日期校验与去重逻辑，也可调用 `.github/workflows/daily-base-info.yml`，传入其 Python 更新模块和 CSV 相对路径。
+
+基础数据任务同时维护 ERP。中证全指（000985）的 PE-TTM 取自中证官网行情接口的 `peg` 字段。日常更新查询最近 30 个自然日，官网不可用或没有有效数据时才调用 `stock_zh_index_value_csindex`。本地运行 `python -m stock_report.erp repair` 可重建最近十年历史，校验通过后整体替换 CSV。脚本在各数据接口调用前默认等待 3 秒。股债利差按 `(100 / 中证全指 PETTM) - 10年国债收益率` 计算，CSV 输出保留两位小数。[erp.csv](csv_data/erp.csv)
 
 ## 技术指标规划
 

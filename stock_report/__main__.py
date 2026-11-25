@@ -9,6 +9,7 @@ from .config import Settings
 from .calendar import resolve_target
 from .data import DataService, FetchResult
 from .email import send
+from .erp import read_erp_info
 from .margin import margin_info
 from .report import render
 
@@ -54,8 +55,9 @@ def main(argv: list[str] | None = None) -> int:
         report_errors = tuple(getattr(settings, "config_errors", ())) + tuple(runtime_errors)
         try:
             financing = margin_info(now.date()) if settings.frequency == "daily" else None
+            erp = read_erp_info(now.date()) if settings.frequency == "daily" else None
             subject, text, html = render(results, target, report_errors, settings.range_days,
-                                         settings.frequency, financing)
+                                         settings.frequency, financing, erp=erp)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

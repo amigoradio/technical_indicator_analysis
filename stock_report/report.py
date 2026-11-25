@@ -1,11 +1,13 @@
 """Render per-instrument technical analysis."""
 from datetime import date
+from decimal import Decimal, ROUND_HALF_UP
 import base64
 from io import BytesIO
 from html import escape
 
 from .analysis import analyze
 from .data import FetchResult
+from .erp import ErpInfo
 from .margin import MarginInfo
 
 
@@ -130,8 +132,29 @@ def _colored_sar_text(value: str) -> str:
     return f"<span style='color:{color}'>{escaped}</span>" if color else escaped
 
 
+def _erp_text(erp: ErpInfo | None) -> str:
+    if erp is None:
+        return "股权风险溢价：无法获取数据"
+
+    def two_decimals(value: Decimal) -> str:
+        return format(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), ".2f")
+
+    valuation = ""
+    if erp.percentile < 20:
+        valuation = "；大盘很贵"
+    elif erp.percentile > 80:
+        valuation = "；大盘便宜"
+    return (
+        f"股权风险溢价：交易日期 {erp.trade_date}；中证全指 PE-TTM {two_decimals(erp.pe)}；"
+        f"10 年国债收益率 {two_decimals(erp.bond_yield)}%；"
+        f"股债利差 {two_decimals(erp.spread)} 个百分点；"
+        f"10 年百分比 {two_decimals(erp.percentile)}%{valuation}"
+    )
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
-           frequency: str = "daily", margin: MarginInfo | None = None) -> tuple[str, str, str]:
+           frequency: str = "daily", margin: MarginInfo | None = None, *,
+           erp: ErpInfo | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -161,15 +184,16 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         summary_rows.append((result.stock.code, name, change_text, divergence, action, second_action))
     text = [subject]
     html = [f"<h2>{escape(subject)}</h2>"]
-    if frequency == "daily" and margin is not None:
-        if margin.latest_date is None:
-            text.extend(["基本面信息", "融资信息：无法获取数据"])
-            html.append("<h3>基本面信息</h3><p>融资信息：无法获取数据</p>")
+    if frequency == "daily":
+        text.append("基本面信息")
+        html.append("<h3>基本面信息</h3>")
+        if margin is None or margin.latest_date is None:
+            text.append("融资信息：无法获取数据")
+            html.append("<p>融资信息：无法获取数据</p>")
         else:
             status = f"；状态：{margin.status}" if margin.status else ""
             chart = _margin_chart(margin.recent)
             text.extend([
-                "基本面信息",
                 f"融资信息：交易日期 {margin.latest_date}；融资余额 { _margin_number(margin.balance) } 亿元；"
                 f"融资净增量 { _margin_number(margin.change) } 亿元；"
                 f"融资余额3年百分比 { _margin_number(margin.percentile_3y) }%；"
@@ -181,7 +205,6 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 for day, balance, change in margin.recent
             )
             html.append(
-                "<h3>基本面信息</h3>"
                 f"<p>融资信息：交易日期 {escape(str(margin.latest_date))}；"
                 f"融资余额 {_margin_number(margin.balance)} 亿元；"
                 f"融资净增量 {_margin_number(margin.change)} 亿元；"
@@ -194,6 +217,9 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     "<p><img alt='最近十个交易日融资数据柱状图' "
                     f"style='max-width:100%;height:auto' src='data:image/png;base64,{chart}'></p>"
                 )
+        erp_line = _erp_text(erp)
+        text.append(erp_line)
+        html.append(f"<p>{escape(erp_line)}</p>")
     text.append("总结")
     text.append("代码 | 名称 | 涨跌情况 | 背离情况 | 策略一（MACD） | 策略二（SAR与均线）")
     text.extend(" | ".join(row) for row in summary_rows)
