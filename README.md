@@ -40,6 +40,8 @@ python -m stock_report.margin repair
 
 基础数据任务同时维护 ERP。中证全指（000985）的 PE-TTM 取自中证官网行情接口的 `peg` 字段。日常更新查询最近 30 个自然日，官网不可用或没有有效数据时才调用 `stock_zh_index_value_csindex`。本地运行 `python -m stock_report.erp repair` 可重建最近十年历史，校验通过后整体替换 CSV。脚本在各数据接口调用前默认等待 3 秒。股债利差按 `(100 / 中证全指 PETTM) - 10年国债收益率` 计算，CSV 输出保留两位小数。[erp.csv](csv_data/erp.csv)
 
+基础数据任务还会将 A 股涨跌幅统计写入 [charge.csv](csv_data/charge.csv)。统计范围为代码 `60`、`00`、`300`、`688` 开头的股票，排除停牌以及名称包含 `etf`、`st`、`reit`、`lof` 的标的。`python -m stock_report.charge update --scheduled` 获取当前快照并写入当天，CSV 保留最近一年。
+
 ## 技术指标规划
 
 当前已实现日线 MA5/10/20；以下指标及周线分析为后续规划：

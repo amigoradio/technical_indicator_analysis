@@ -6,6 +6,7 @@ from io import BytesIO
 from html import escape
 
 from .analysis import analyze
+from .charge import ChargeInfo
 from .data import FetchResult
 from .erp import ErpInfo
 from .margin import MarginInfo
@@ -24,6 +25,61 @@ def _margin_number(value: object) -> str:
         return f"{float(value):,.2f}"
     except (TypeError, ValueError):
         return escape(str(value))
+
+
+def _charge_chart(info: ChargeInfo) -> str | None:
+    if not info.rows:
+        return None
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        from matplotlib import font_manager
+        from matplotlib.ticker import FuncFormatter, MaxNLocator
+        import numpy as np
+        rows = info.rows
+        labels = [day.strftime("%m-%d") for day, *_ in rows]
+        up5, up98 = ([row[index] for row in rows] for index in (1, 2))
+        down5, down98 = ([-row[index] for row in rows] for index in (3, 4))
+        totals = np.array([row[5] for row in rows])
+        positions = np.arange(len(rows))
+        font = next((item for item in font_manager.fontManager.ttflist
+                     if any(token in item.name.lower() for token in
+                            ("noto sans cjk", "source han", "microsoft yahei", "simhei", "wenquanyi"))), None)
+        if font:
+            labels_text = ("涨幅大于5%", "涨幅大于9.8%", "跌幅大于5%", "跌幅大于9.8%", "统计股票总数")
+            ylabel, title = "股票数量", "最近十个交易日市场涨跌数量"
+        else:
+            labels_text = ("Up >5%", "Up >9.8%", "Down >5%", "Down >9.8%", "Total")
+            ylabel, title = "Stocks", "Market breadth (10 sessions)"
+        figure, axis = plt.subplots(figsize=(8.0, 4.0), dpi=150)
+        try:
+            axis.bar(positions, 2 * totals, bottom=-totals, width=0.76,
+                     color="#dedede", label=labels_text[4])
+            width = 0.32
+            left = positions - width / 2
+            right = positions + width / 2
+            axis.bar(left, up5, width, color="#f6d77a", label=labels_text[0])
+            axis.bar(right, up98, width, color="#d69e00", label=labels_text[1])
+            axis.bar(left, down5, width, color="#9bd7f5", label=labels_text[2])
+            axis.bar(right, down98, width, color="#1976b8", label=labels_text[3])
+            axis.axhline(0, color="#555555", linewidth=0.8)
+            axis.set_xticks(positions, labels)
+            axis.yaxis.set_major_locator(MaxNLocator(integer=True))
+            axis.yaxis.set_major_formatter(FuncFormatter(lambda value, _: f"{value:,.0f}"))
+            font_props = font_manager.FontProperties(fname=font.fname) if font else None
+            axis.set_ylabel(ylabel, fontproperties=font_props)
+            axis.set_title(title, fontproperties=font_props)
+            axis.grid(axis="y", alpha=0.25)
+            axis.legend(ncols=3, prop=font_props)
+            figure.tight_layout()
+            output = BytesIO()
+            figure.savefig(output, format="png", facecolor="white")
+            return base64.b64encode(output.getvalue()).decode("ascii")
+        finally:
+            plt.close(figure)
+    except Exception:
+        return None
 
 
 def _margin_chart(rows: tuple[tuple[date, float, float], ...]) -> str | None:
@@ -154,7 +210,7 @@ def _erp_text(erp: ErpInfo | None) -> str:
 
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
            frequency: str = "daily", margin: MarginInfo | None = None, *,
-           erp: ErpInfo | None = None) -> tuple[str, str, str]:
+           erp: ErpInfo | None = None, charge: ChargeInfo | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -220,6 +276,25 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         erp_line = _erp_text(erp)
         text.append(erp_line)
         html.append(f"<p>{escape(erp_line)}</p>")
+        if charge and charge.rows:
+            columns = ("交易日期", "涨幅>5%", "涨幅>9.8%", "跌幅>5%", "跌幅>9.8%", "统计股票总数")
+            text.append("市场涨跌数量")
+            text.append(" | ".join(columns))
+            text.extend(" | ".join(map(str, row)) for row in charge.rows)
+            html.append("<p>市场涨跌数量</p>")
+            chart = _charge_chart(charge)
+            if chart:
+                html.append("<p><img alt='最近十个交易日市场涨跌数量柱状图' "
+                            f"style='max-width:100%;height:auto' src='data:image/png;base64,{chart}'></p>")
+            else:
+                headers = "".join(f"<th>{escape(column)}</th>" for column in columns)
+                rows = ["<tr>" + "".join(f"<td>{escape(str(value))}</td>" for value in row) + "</tr>"
+                        for row in charge.rows]
+                html.append("<table border='1' cellpadding='6' cellspacing='0'>"
+                            f"<thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table>")
+        else:
+            text.append("市场涨跌数量：无法获取数据")
+            html.append("<p>市场涨跌数量：无法获取数据</p>")
     text.append("总结")
     text.append("代码 | 名称 | 涨跌情况 | 背离情况 | 策略一（MACD） | 策略二（SAR与均线）")
     text.extend(" | ".join(row) for row in summary_rows)

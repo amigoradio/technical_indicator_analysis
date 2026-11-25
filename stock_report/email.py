@@ -1,13 +1,16 @@
+from base64 import b64decode
 from email.message import EmailMessage
 from email.header import Header
 from email.utils import formataddr, formatdate, make_msgid
 import logging
+import re
 import smtplib
 import ssl
 
 from .config import Settings
 
 logger = logging.getLogger(__name__)
+_PNG_SOURCE = re.compile(r"\bsrc='data:image/png;base64,([A-Za-z0-9+/=]+)'")
 
 
 def send(settings: Settings, subject: str, text: str, html: str) -> None:
@@ -21,7 +24,17 @@ def send(settings: Settings, subject: str, text: str, html: str) -> None:
     message["Date"] = formatdate(localtime=False)
     message["Message-ID"] = make_msgid()
     message.set_content(text)
-    message.add_alternative(html, subtype="html")
+    charts = []
+
+    def embed_chart(match: re.Match[str]) -> str:
+        cid = make_msgid()
+        charts.append((cid, b64decode(match.group(1))))
+        return f"src='cid:{cid[1:-1]}'"
+
+    message.add_alternative(_PNG_SOURCE.sub(embed_chart, html), subtype="html")
+    html_part = message.get_payload()[-1]
+    for cid, image in charts:
+        html_part.add_related(image, maintype="image", subtype="png", cid=cid)
     context = ssl.create_default_context()
     transport = smtplib.SMTP_SSL if settings.smtp_security == "ssl" else smtplib.SMTP
     logger.info("连接邮件服务器，模式 %s，收件人数 %d", settings.smtp_security, len(settings.receivers))

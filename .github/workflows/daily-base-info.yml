@@ -47,7 +47,7 @@ jobs:
         id: update
         shell: bash
         run: |
-          modules=(stock_report.erp stock_report.margin)
+          modules=(stock_report.erp stock_report.margin stock_report.charge)
           if [[ -n "$CSV_MODULE" ]]; then
             modules=("$CSV_MODULE")
           fi
@@ -66,7 +66,7 @@ jobs:
         if: ${{ !cancelled() && (steps.update.outcome == 'success' || steps.update.outcome == 'failure') }}
         shell: bash
         run: |
-          paths=(csv_data/margin.csv csv_data/erp.csv)
+          paths=(csv_data/margin.csv csv_data/erp.csv csv_data/charge.csv)
           if [[ -n "$CSV_PATH" ]]; then
             paths=("$CSV_PATH")
           fi
