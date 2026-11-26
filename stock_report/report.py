@@ -9,6 +9,7 @@ from .analysis import analyze
 from .charge import ChargeInfo
 from .data import FetchResult
 from .erp import ErpInfo
+from .fund_flow import FundFlow
 from .margin import MarginInfo
 
 
@@ -208,9 +209,30 @@ def _erp_text(erp: ErpInfo | None) -> str:
     )
 
 
+def _fund_flow_text(flow: FundFlow | None) -> str:
+    if flow is None or not flow.amount:
+        return ""
+    direction = "流入" if flow.amount > 0 else "流出"
+    currency = "港元" if flow.currency == "HKD" else "元"
+    amount = f"{abs(flow.amount):,.2f}"
+    labels = "、".join(label for label in (flow.streak, flow.divergence) if label)
+    status = f"（{labels}）" if labels else ""
+    return f"主力资金净{direction} {amount} {currency}{status}"
+
+
+def _fund_flow_html(text: str) -> str:
+    if not text:
+        return ""
+    markup = escape(text)
+    for label, color in (("主力出货", "#008000"), ("主力抄底", "#d00000")):
+        markup = markup.replace(label, f"<span style='color:{color}'>{label}</span>")
+    return f"<p>资金情况：{markup}</p>"
+
+
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
            frequency: str = "daily", margin: MarginInfo | None = None, *,
-           erp: ErpInfo | None = None, charge: ChargeInfo | None = None) -> tuple[str, str, str]:
+           erp: ErpInfo | None = None, charge: ChargeInfo | None = None,
+           fund_flows: dict[str, FundFlow] | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -278,10 +300,13 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         html.append(f"<p>{escape(erp_line)}</p>")
         if charge and charge.rows:
             columns = ("交易日期", "涨幅>5%", "涨幅>9.8%", "跌幅>5%", "跌幅>9.8%", "统计股票总数")
-            text.append("市场涨跌数量")
+            ice_point = any(day == target and down5 > 2000
+                            for day, _, _, down5, _, _ in charge.rows)
+            text.append("市场涨跌数量（冰点）" if ice_point else "市场涨跌数量")
             text.append(" | ".join(columns))
             text.extend(" | ".join(map(str, row)) for row in charge.rows)
-            html.append("<p>市场涨跌数量</p>")
+            badge = " <span style='color:#9bd7f5'>冰点</span>" if ice_point else ""
+            html.append(f"<p>市场涨跌数量{badge}</p>")
             chart = _charge_chart(charge)
             if chart:
                 html.append("<p><img alt='最近十个交易日市场涨跌数量柱状图' "
@@ -366,6 +391,8 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 if analysis.sar.recent_reversal != "无":
                     sar_text += f"（{analysis.sar.recent_reversal}）"
                 position_text = _price_position_text(analysis.range_percentile)
+                fund_text = (_fund_flow_text(fund_flows.get(result.stock.code))
+                             if frequency == "daily" and fund_flows else "")
                 strategy_two_summary = f"策略二（SAR与均线）结论: {analysis.strategy_two.action}"
                 strategy_one_html = (f"<p><strong>策略一（MACD）结论：</strong>"
                                      f"{_colored_action(action)}</p>")
@@ -385,6 +412,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                     *([analysis.nine_turn] if analysis.nine_turn else []),
                     f"{analysis.range_days}日股价位置百分比: {number(analysis.range_percentile)}%（{position_text}）",
                     f"今日量能高于前120日均量: {_volume_text(analysis.volume_above_ma120)}；连续3日放量: {_volume_text(analysis.volume_above_ma120_three_days)}",
+                    *([f"资金情况：{fund_text}"] if fund_text else []),
                     f"策略一（MACD）结论: {action}",
                     sar_text,
                     f"均线排列: {analysis.alignment.direction}；K线位置: {analysis.alignment.candle_position}",
@@ -398,6 +426,7 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                      if analysis.nine_turn else ""),
                     f"<p>{analysis.range_days}日股价位置百分比：{number(analysis.range_percentile)}%（{position_text}）</p>",
                     f"<p>今日量能高于前120日均量：{_volume_text(analysis.volume_above_ma120)}；连续3日放量：{_volume_text(analysis.volume_above_ma120_three_days)}</p>",
+                    _fund_flow_html(fund_text),
                     strategy_one_html,
                     f"<p>{_colored_sar_text(sar_text)}</p>",
                     f"<p>均线排列：{analysis.alignment.direction}；K线位置：{analysis.alignment.candle_position}</p>",

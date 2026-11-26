@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: daily-close-${{ github.ref }}
+  group: longbridge-close-reports
   cancel-in-progress: false
 
 jobs:
@@ -38,10 +38,17 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install --upgrade -r requirements.txt
           python -m pip show akshare baostock longbridge
+      - name: Restore recent fund flow snapshots
+        uses: actions/cache/restore@v5
+        with:
+          path: .cache/daily-fund-flow.json
+          key: daily-fund-flow-v1-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: daily-fund-flow-v1-${{ github.ref }}-
       - name: Fetch, analyze and email daily close
         env:
           PYTHONUNBUFFERED: '1'
           TZ: Asia/Shanghai
+          FUND_FLOW_HISTORY_FILE: .cache/daily-fund-flow.json
           FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_run }}
           STOCK_LIST: ${{ secrets.STOCK_LIST }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
@@ -70,3 +77,9 @@ jobs:
           else
             python -m stock_report "${args[@]}"
           fi
+      - name: Save recent fund flow snapshots
+        if: ${{ !cancelled() && hashFiles('.cache/daily-fund-flow.json') != '' }}
+        uses: actions/cache/save@v5
+        with:
+          path: .cache/daily-fund-flow.json
+          key: daily-fund-flow-v1-${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}

@@ -3,4 +3,5 @@ __pycache__/
 .venv/
 .env
 .pytest_cache/
+.cache/daily-fund-flow.json
 logs/

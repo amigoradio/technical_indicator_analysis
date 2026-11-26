@@ -2,6 +2,7 @@ import argparse
 from datetime import datetime
 from html import escape
 import logging
+import os
 import sys
 from zoneinfo import ZoneInfo
 
@@ -11,6 +12,7 @@ from .charge import read_charge
 from .data import DataService, FetchResult
 from .email import send
 from .erp import read_erp_info
+from .fund_flow import collect_fund_flows
 from .margin import margin_info
 from .report import render
 
@@ -54,12 +56,25 @@ def main(argv: list[str] | None = None) -> int:
                 results.append(FetchResult(stock, [], error=f"任务处理失败：{type(exc).__name__}"))
         logger.info("步骤 3/4：分析并生成报告，成功 %d/%d", sum(bool(r.bars) for r in results), len(results))
         report_errors = tuple(getattr(settings, "config_errors", ())) + tuple(runtime_errors)
+        fund_flows = {}
+        if settings.frequency == "daily":
+            try:
+                closes_by_code = {
+                    result.stock.code: {bar.date: bar.close for bar in result.bars}
+                    for result in results if result.bars
+                }
+                fund_flows = collect_fund_flows(settings.stocks, target, now.date(), settings.request_timeout,
+                                                closes_by_code=closes_by_code,
+                                                scheduled=args.scheduled and os.getenv("GITHUB_EVENT_NAME") == "schedule")
+            except Exception as exc:
+                logger.warning("资金情况不可用（%s），继续生成报告", type(exc).__name__)
         try:
             financing = margin_info(now.date()) if settings.frequency == "daily" else None
             erp = read_erp_info(now.date()) if settings.frequency == "daily" else None
             charge = read_charge(target=target) if settings.frequency == "daily" else None
             subject, text, html = render(results, target, report_errors, settings.range_days,
-                                         settings.frequency, financing, erp=erp, charge=charge)
+                                         settings.frequency, financing, erp=erp, charge=charge,
+                                         fund_flows=fund_flows)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

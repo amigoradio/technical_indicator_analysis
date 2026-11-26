@@ -1,5 +1,6 @@
 """Provider routing, bounded requests, retries and validation."""
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import date, timedelta
 from importlib import import_module
@@ -78,15 +79,33 @@ def _worker(connection, provider: Provider, stock: Stock, start: date | None, en
         connection.close()
 
 
-def request(provider: Provider, stock: Stock, start: date | None, end: date,
-            timeout: float, *, frequency: str = "daily") -> list[DailyBar]:
+@contextmanager
+def worker_pipe(worker, *args):
     """Use killable processes: thread timeouts leave blocked SDK calls running."""
     context = mp.get_context("spawn")
     reader, writer = context.Pipe(duplex=False)
-    process = context.Process(target=_worker, args=(writer, provider, stock, start, end, frequency))
+    process = context.Process(target=worker, args=(writer, *args))
     try:
         process.start()
         writer.close()
+        yield reader
+    finally:
+        reader.close()
+        writer.close()
+        if process.pid is not None:
+            process.join(timeout=1)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=2)
+            if process.is_alive():
+                process.kill()
+                process.join()
+            process.close()
+
+
+def request(provider: Provider, stock: Stock, start: date | None, end: date,
+            timeout: float, *, frequency: str = "daily") -> list[DailyBar]:
+    with worker_pipe(_worker, provider, stock, start, end, frequency) as reader:
         if not reader.poll(timeout):
             raise TimeoutError(f"数据请求超过 {timeout:g} 秒")
         try:
@@ -105,18 +124,6 @@ def request(provider: Provider, stock: Stock, start: date | None, end: date,
             except (EOFError, OSError):
                 pass
         return payload
-    finally:
-        reader.close()
-        writer.close()
-        if process.pid is not None:
-            process.join(timeout=1)
-            if process.is_alive():
-                process.terminate()
-                process.join(timeout=2)
-            if process.is_alive():
-                process.kill()
-                process.join()
-            process.close()
 
 
 @dataclass(frozen=True)

@@ -5,4 +5,5 @@ pandas>=2.0
 matplotlib>=3.8
 baostock==0.9.4
 longbridge>=5.4.0
+filelock>=3.16
 tzdata>=2025.1

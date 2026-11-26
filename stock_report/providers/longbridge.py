@@ -6,11 +6,17 @@ import json
 import logging
 import os
 from pathlib import Path
+from tempfile import gettempdir
+from time import sleep
+
+from filelock import FileLock
 
 from ..config import value
 from ..models import HISTORY_BAR_LIMIT, DailyBar, Stock
 
 logger = logging.getLogger(__name__)
+_QUOTE_LOCK_PATH = Path(gettempdir()) / "technical-indicator-analysis-longbridge.lock"
+_QUOTE_INTERVAL_SECONDS = 0.15
 
 
 def configured() -> bool:
@@ -68,28 +74,38 @@ def build_config():
     return Config.from_apikey(key, secret, token, **extra)
 
 
-def get_name(stock: Stock) -> str:
+def quote_request(method: str, *args, **kwargs):
     from longbridge.openapi import QuoteContext
 
-    infos = QuoteContext(build_config()).static_info([stock.longbridge_symbol])
+    # Workers share an OS lock that releases even if a request times out
+    # and its worker is terminated.
+    with FileLock(_QUOTE_LOCK_PATH):
+        sleep(_QUOTE_INTERVAL_SECONDS)
+        ctx = QuoteContext(build_config())
+        sleep(_QUOTE_INTERVAL_SECONDS)
+        return getattr(ctx, method)(*args, **kwargs)
+
+
+def get_name(stock: Stock) -> str:
+    infos = quote_request("static_info", [stock.longbridge_symbol])
     if infos:
         return infos[0].name_cn or infos[0].name_en or ""
     return ""
 
 
 def fetch(stock: Stock, start: date | None, end: date, *, frequency: str = "daily") -> list[DailyBar]:
-    from longbridge.openapi import AdjustType, Period, QuoteContext
+    from longbridge.openapi import AdjustType, Period
     from zoneinfo import ZoneInfo
 
-    ctx = QuoteContext(build_config())
     if frequency == "weekly":
-        candles = ctx.history_candlesticks_by_offset(
+        candles = quote_request(
+            "history_candlesticks_by_offset",
             symbol=stock.longbridge_symbol, period=Period.Week, adjust_type=AdjustType.NoAdjust,
             forward=False, count=HISTORY_BAR_LIMIT, time=datetime.combine(end, time(23, 59, 59)),
         )
     else:
-        candles = ctx.history_candlesticks_by_date(
-            stock.longbridge_symbol, Period.Day, AdjustType.NoAdjust, start, end)
+        candles = quote_request("history_candlesticks_by_date",
+                                stock.longbridge_symbol, Period.Day, AdjustType.NoAdjust, start, end)
     bars = []
     for candle in candles or []:
         timestamp = candle.timestamp

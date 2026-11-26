@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: weekly-close-${{ github.ref }}
+  group: longbridge-close-reports
   cancel-in-progress: false
 
 jobs:
