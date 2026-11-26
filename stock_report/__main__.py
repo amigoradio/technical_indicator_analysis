@@ -15,6 +15,7 @@ from .erp import read_erp_info
 from .fund_flow import collect_fund_flows
 from .margin import margin_info
 from .report import render
+from .valuation import read_valuation
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
                 results.append(FetchResult(stock, [], error=f"任务处理失败：{type(exc).__name__}"))
         logger.info("步骤 3/4：分析并生成报告，成功 %d/%d", sum(bool(r.bars) for r in results), len(results))
         report_errors = tuple(getattr(settings, "config_errors", ())) + tuple(runtime_errors)
+        valuations = {
+            result.stock.code: read_valuation(result.stock, target, settings.request_timeout)
+            for result in results if result.bars and result.stock.supports_fundamentals
+        }
         fund_flows = {}
         if settings.frequency == "daily":
             try:
@@ -74,7 +79,7 @@ def main(argv: list[str] | None = None) -> int:
             charge = read_charge(target=target) if settings.frequency == "daily" else None
             subject, text, html = render(results, target, report_errors, settings.range_days,
                                          settings.frequency, financing, erp=erp, charge=charge,
-                                         fund_flows=fund_flows)
+                                         fund_flows=fund_flows, valuations=valuations)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

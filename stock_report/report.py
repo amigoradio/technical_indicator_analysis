@@ -11,6 +11,7 @@ from .data import FetchResult
 from .erp import ErpInfo
 from .fund_flow import FundFlow
 from .margin import MarginInfo
+from .valuation import Valuation
 
 
 def number(value: float | None) -> str:
@@ -232,7 +233,8 @@ def _fund_flow_html(text: str) -> str:
 def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (), range_days: int = 60,
            frequency: str = "daily", margin: MarginInfo | None = None, *,
            erp: ErpInfo | None = None, charge: ChargeInfo | None = None,
-           fund_flows: dict[str, FundFlow] | None = None) -> tuple[str, str, str]:
+           fund_flows: dict[str, FundFlow] | None = None,
+           valuations: dict[str, Valuation | None] | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -360,6 +362,15 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
                 text.append(f"个股错误: {analysis_error}")
                 html.append(f"<p class='error'>个股错误：{escape(analysis_error)}</p></section>")
                 continue
+            if result.stock.supports_fundamentals and valuations is not None:
+                valuation = valuations.get(result.stock.code)
+                if valuation is None:
+                    line = "估值：PE-TTM —，PB —"
+                else:
+                    line = (f"估值（{valuation.date}）：PE-TTM {number(valuation.pe_ttm)}，"
+                            f"PB {number(valuation.pb)}")
+                text.append(line)
+                html.append(f"<p>{escape(line)}</p>")
             try:
                 ma5 = analysis.moving_averages[5]
                 previous_ma5 = sum(bar.close for bar in result.bars[-6:-1]) / 5 if len(result.bars) >= 6 else None
