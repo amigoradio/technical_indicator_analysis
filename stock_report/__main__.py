@@ -14,6 +14,7 @@ from .email import send
 from .erp import read_erp_info
 from .fund_flow import collect_fund_flows
 from .margin import margin_info
+from .pepb import read_weekly_rows
 from .report import render
 from .valuation import read_valuation
 
@@ -73,13 +74,19 @@ def main(argv: list[str] | None = None) -> int:
                                                 scheduled=args.scheduled and os.getenv("GITHUB_EVENT_NAME") == "schedule")
             except Exception as exc:
                 logger.warning("资金情况不可用（%s），继续生成报告", type(exc).__name__)
+        index_rows = None
+        if settings.frequency == "weekly":
+            try:
+                index_rows = read_weekly_rows(target)
+            except (OSError, ValueError) as exc:
+                logger.warning("行业估值读取失败（%s）", type(exc).__name__)
         try:
             financing = margin_info(now.date()) if settings.frequency == "daily" else None
             erp = read_erp_info(now.date()) if settings.frequency == "daily" else None
             charge = read_charge(target=target) if settings.frequency == "daily" else None
             subject, text, html = render(results, target, report_errors, settings.range_days,
                                          settings.frequency, financing, erp=erp, charge=charge,
-                                         fund_flows=fund_flows, valuations=valuations)
+                                         fund_flows=fund_flows, valuations=valuations, index_rows=index_rows)
         except Exception as exc:
             report_errors += (f"报告生成失败：{type(exc).__name__}",)
             subject = f"股票日K收盘报告（报告生成异常）| {target}"

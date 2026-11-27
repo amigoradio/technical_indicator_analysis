@@ -234,7 +234,8 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
            frequency: str = "daily", margin: MarginInfo | None = None, *,
            erp: ErpInfo | None = None, charge: ChargeInfo | None = None,
            fund_flows: dict[str, FundFlow] | None = None,
-           valuations: dict[str, Valuation | None] | None = None) -> tuple[str, str, str]:
+           valuations: dict[str, Valuation | None] | None = None,
+           index_rows: list[tuple[str, ...]] | None = None) -> tuple[str, str, str]:
     period_name = "周K" if frequency == "weekly" else "日K"
     subject = f"股票{period_name}收盘报告 | {target}"
     groups = {"CN": [], "HK": []}
@@ -264,6 +265,21 @@ def render(results: list[FetchResult], target: date, errors: tuple[str, ...] = (
         summary_rows.append((result.stock.code, name, change_text, divergence, action, second_action))
     text = [subject]
     html = [f"<h2>{escape(subject)}</h2>"]
+    if frequency == "weekly":
+        text.append("各行业情况")
+        html.append("<h3>各行业情况</h3>")
+        if index_rows:
+            columns = ("简称", "股息率", "PE-TTM", "PB", "PE百分比", "PB百分比")
+            text.append(" | ".join(columns))
+            text.extend(" | ".join(row) for row in index_rows)
+            headers = "".join(f"<th>{escape(column)}</th>" for column in columns)
+            rows = ["<tr>" + "".join(f"<td>{escape(value)}</td>" for value in row) + "</tr>"
+                    for row in index_rows]
+            html.append("<table border='1' cellpadding='6' cellspacing='0'>"
+                        f"<thead><tr>{headers}</tr></thead><tbody>{''.join(rows)}</tbody></table>")
+        else:
+            text.append("无法获取数据")
+            html.append("<p>无法获取数据</p>")
     if frequency == "daily":
         text.append("基本面信息")
         html.append("<h3>基本面信息</h3>")
